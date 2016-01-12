@@ -7,8 +7,10 @@ CV pitch tracking
 Filter control
 Linear ADSR
 Legato,  Portamento and normal mode
+pitch bend
 
 Todo:
+Fix legato, so that it keeps the highest pitch note, not it keeps the last
 Velocity,
 LFO,
 MIDI CC control,
