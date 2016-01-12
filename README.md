@@ -9,8 +9,12 @@ Linear ADSR
 Legato,  Portamento and normal mode
 
 Todo:
-Velocity
-LFO
-MIDI CC control
-VCA
-Upload schematics
+Velocity,
+LFO,
+MIDI CC control,
+VCA,
+Upload schematics,
+Exponential ADSR curves,
+When in Legato, let the decay continue or it creates artifacts with short notes
+
+
