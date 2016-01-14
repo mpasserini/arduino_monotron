@@ -8,18 +8,17 @@ const int PIN_CS_FILTER = 46;
 const int GAIN_1 = 0x1;
 const int GAIN_2 = 0x0;
 MIDI_CREATE_INSTANCE(HardwareSerial, Serial1, midiA);
-const int pitch_max = 4096;
+const int pitch_max = 4095;
 const int notes_max = 60;
 const int notes_lowest = 24;
 // min note 24
 // max note 84, 5 oct
 // max note 96, 6 oct
-long note_on_time = 0;
+
+long env_trig_time = 0;
 long note_change_time = 0;
 long note_off_time = 0;
-//long slide_time = 0;
 int last_pitch = 0;
-//int desired_pitch = 0;
 int curr_pitch = 0;
 float velocity = 0;
 float velocity_scaling = 90; // 0-100
@@ -36,15 +35,17 @@ StackArray <int> note_stack;
 
 int vcf = 0;
 int vcf_env_amt = 2048;
-const int vcf_env_amt_max = 4096;
-long env1_attack = 200000;
-long env1_decay = 300000;
-int env1_sustain = 3000;
+const int vcf_env_amt_max = 4095;
+long env1_attack = 100000;
+long env1_decay = 1000000;
+int env1_sustain = 2000;
 long env1_release = 2000000;
 int env_at_note_off = 0;
+int env_at_half_note_off = 0;
 const int env1_min = 0;
-const int env1_max = 4096;
-const int filter_max = 4096;
+const int env1_max = 4095;
+bool env_trig = false;
+const int filter_max = 4095;
 float curr_filter = 0;
 int bent_pitch = 0;
 int pitch_bend_cv = 0;
@@ -68,11 +69,13 @@ void setup() {
 
 void handleNoteOn(byte inChannel, byte inNote, byte inVelocity)
 {
-
-  note_on_time = micros();
-  note_change_time = note_on_time;
+  note_change_time = micros();
   int note_cv = pitch_max / notes_max * (inNote - notes_lowest);
   last_pitch = curr_pitch;
+  if (note_stack.isEmpty()){
+    env_trig = true;
+    env_trig_time = micros();
+  }
   note_stack.push(note_cv);
   if (note_stack.count() > 1) {
     first_note = false;
@@ -99,7 +102,55 @@ void handlePitchBend(byte channel, int bend){
 }
 
 void handleControlChange(byte channel, byte number, byte value){
-  
+  switch (number) {
+    case 65:
+      
+      if (value == 0) {
+        portamento = false; // portamento and legato  booleans should be fixed, they don't behave correctly
+      }
+      else {
+        portamento = true;
+      }
+      break;
+    case 66:
+      if (value == 0) {
+        legato = false;
+      }
+      else {
+        legato = true;
+      }
+      break;
+    case 67:
+      if (value == 0) {
+        pitch_bend_notes = 2;
+      }
+      else {
+        pitch_bend_notes = 12;
+      }
+      break;
+    case 81:
+      vcf = (float)value / 127 * 4095;
+      break;
+    case 83:
+      vcf_env_amt = (float)value / 127 * 4095; // to be implemented
+      break;
+      
+    case 89:
+      env1_attack = (float)value / 127 * 1000000;
+      break;
+    case 90:
+      env1_decay = (float)value / 127 * 1000000;
+      break;
+    case 91:
+      env1_sustain = (float)value / 127 * 4095;
+      break;
+    case 92:
+      env1_release = (float)value / 127 * 10000000;
+      break;
+    case 97:
+      slide_time = (float)value / 127 * 1000000;
+      break;
+  }  
 }
 
 
@@ -149,7 +200,7 @@ void loop() {
   // PITCH
   if (!note_stack.isEmpty()) {
     if ((now > (note_change_time + slide_time ))  || ((legato) && (first_note ))  ) { // normal pitch section
-      curr_pitch = note_stack.peek() + pitch_bend_cv;
+      curr_pitch = note_stack.peek() + pitch_bend_cv; //TODO: change from peek to the highest note
     }
     else if ((portamento) || ((legato) && (note_stack.count() >= 1))  ) { // portamento section, or legato
       curr_pitch = last_pitch + (now - note_change_time) * (note_stack.peek() - last_pitch) / slide_time + pitch_bend_cv ;
@@ -160,26 +211,38 @@ void loop() {
 
   // ADSR
   if (!note_stack.isEmpty()) {
-    if ((now <= (note_on_time + env1_attack )) && (note_stack.count() == 1) ) { // attack section
-      curr_filter =  (env1_min + (now - note_on_time) * (env1_max - env1_min) / env1_attack )   ;
+
+    // attack section
+    if ((now <= (env_trig_time + env1_attack )) && env_trig ) { 
+      curr_filter =  (env1_min + (now - env_trig_time) * (env1_max - env1_min) / (env1_attack) )   ;
     }
-    else if  (((now >= (note_on_time + env1_attack )) && (now <= (note_on_time + env1_decay ))) && (note_stack.count() == 1) ) { // decay section
-      curr_filter = (env1_max + (now - note_on_time) * (env1_sustain - env1_max) / env1_decay )  ;
+
+    // decay section
+    else if  (((now >= (env_trig_time + env1_attack )) && (now <= (env_trig_time + env1_decay )) && env_trig)  ) { 
+      curr_filter = (env1_max + (now - env_trig_time) * (env1_sustain - env1_max) / env1_decay )  ;
     }
-    else if (now > (note_on_time + env1_attack + env1_decay ))  { // sustain section
+    else if ((now > (env_trig_time + env1_attack + env1_decay )) && env_trig )  { // sustain section
       curr_filter =  env1_sustain  ;
+      
     }
   }
   else {
-    if (now <= (note_off_time + env1_release )) { // Release section
-
-      curr_filter = (env_at_note_off + ( now -  note_off_time) * ( env1_min -  env_at_note_off) / env1_release )  ;
+    // Release section
+    // trick to make it fake exponential... divide the release time by 2, start with a steeper slope
+    if ((now <= (note_off_time + env1_release/2))) { 
+      curr_filter = env_at_note_off + ( now -  note_off_time) * ( env1_min -  env_at_note_off) / (env1_release/2)  ;
+      env_at_half_note_off = curr_filter;
+    }
+    else if ((now <= (note_off_time + env1_release))) { // Release section
+      curr_filter = env_at_half_note_off + ( now -  note_off_time) * ( env1_min -  env_at_half_note_off) / env1_release  ;
     }
     else { // note off
       curr_filter = 0;
       //digitalWrite(PIN_GATE, HIGH);
     }
   }
+
+  curr_filter = curr_filter * ((float)vcf_env_amt / vcf_env_amt_max) + vcf;
 
   if (curr_pitch > pitch_max) {
     curr_pitch = pitch_max;
