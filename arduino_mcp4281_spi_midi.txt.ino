@@ -39,20 +39,25 @@ int vcf_env_amt = 2048;
 const int vcf_env_amt_max = 4096;
 long env1_attack = 200000;
 long env1_decay = 300000;
-int env1_sustain = 1200;
+int env1_sustain = 3000;
 long env1_release = 2000000;
 int env_at_note_off = 0;
 const int env1_min = 0;
 const int env1_max = 4096;
 const int filter_max = 4096;
 float curr_filter = 0;
-
+int bent_pitch = 0;
+int pitch_bend_cv = 0;
+int pitch_bend_max = 8192;
+int pitch_bend_notes = 12;
 
 void setup() {
   Serial.begin(9600);
   midiA.begin(MIDI_CHANNEL_OMNI);
   midiA.setHandleNoteOn(handleNoteOn);
   midiA.setHandleNoteOff(handleNoteOff);
+  midiA.setHandleControlChange(handleControlChange);
+  midiA.setHandlePitchBend(handlePitchBend);
   pinMode(PIN_CS_PITCH, OUTPUT);
   pinMode(PIN_CS_FILTER, OUTPUT);
   SPI.begin();
@@ -66,13 +71,9 @@ void handleNoteOn(byte inChannel, byte inNote, byte inVelocity)
 
   note_on_time = micros();
   note_change_time = note_on_time;
-  //last_pitch = curr_pitch;
   int note_cv = pitch_max / notes_max * (inNote - notes_lowest);
   last_pitch = curr_pitch;
-  //desired_pitch = note_cv;
   note_stack.push(note_cv);
-  //  digitalWrite(PIN_GATE, HIGH);
-  // velocity = ((float)inVelocity) / 127  ;
   if (note_stack.count() > 1) {
     first_note = false;
   }
@@ -86,12 +87,19 @@ void handleNoteOff(byte inChannel, byte inNote, byte inVelocity)
     last_pitch = note_stack.pop();
   }
   if (note_stack.isEmpty()) {
-    ///////////////////////////// digitalWrite(PIN_GATE, LOW);
     note_off_time = micros();
     env_at_note_off = curr_filter;
     first_note = true;
     note_on = false;
   }
+}
+
+void handlePitchBend(byte channel, int bend){
+  pitch_bend_cv =  ((long)bend * ((pitch_max / notes_max) * pitch_bend_notes) ) / pitch_bend_max; 
+}
+
+void handleControlChange(byte channel, byte number, byte value){
+  
 }
 
 
@@ -141,10 +149,10 @@ void loop() {
   // PITCH
   if (!note_stack.isEmpty()) {
     if ((now > (note_change_time + slide_time ))  || ((legato) && (first_note ))  ) { // normal pitch section
-      curr_pitch = note_stack.peek();
+      curr_pitch = note_stack.peek() + pitch_bend_cv;
     }
     else if ((portamento) || ((legato) && (note_stack.count() >= 1))  ) { // portamento section, or legato
-      curr_pitch = last_pitch + (now - note_change_time) * (note_stack.peek() - last_pitch) / slide_time ;
+      curr_pitch = last_pitch + (now - note_change_time) * (note_stack.peek() - last_pitch) / slide_time + pitch_bend_cv ;
     }
 
   }
@@ -173,6 +181,9 @@ void loop() {
     }
   }
 
+  if (curr_pitch > pitch_max) {
+    curr_pitch = pitch_max;
+  }
   if (curr_filter > filter_max) { // clear up too big numbers
     curr_filter = filter_max;
   }
