@@ -3,14 +3,16 @@ The code is for Arduino and is supposed to control a Korg Monotron via MIDI
 
 
 Done:
-CV pitch tracking
-Filter control
-Linear ADSR
-Legato,  Portamento and normal mode
-pitch bend
+CV pitch tracking,
+Filter control,
+pseudo exponential ADSR,
+Legato,  Portamento and normal mode,
+pitch bend,
+logarithmic scaling for adsr pots,
 
 Todo:
-Fix legato, so that it keeps the highest pitch note, not it keeps the last
+add several modes for legato,
+lfo pitch tracking,
 Velocity,
 LFO,
 MIDI CC control,
