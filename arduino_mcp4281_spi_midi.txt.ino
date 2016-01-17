@@ -2,7 +2,7 @@
 #include <SPI.h>
 #include <StackArray.h>
 
-
+//http://www.ripmat.it/mate/d/dc/dcee.html
 /*
   NOTES
   void keyword  N/A
@@ -63,7 +63,7 @@ const unsigned long vcf_env_amt_max = 4095;
 unsigned long env1_attack_msec = 0; //milliseconds
 unsigned long env1_decay_msec = 0;
 unsigned long env1_sustain = 0;
-unsigned long env1_release = 0;
+unsigned long env1_release_msec = 0;
 unsigned int env_at_note_off = 0;
 unsigned int env_at_half_release = 1000; //this will be overwritten
 unsigned int env_at_half_decay = 3000; //this will be overwritten
@@ -189,17 +189,28 @@ void handleControlChange(byte channel, byte number, byte value) {
       lfo1_amount = value;
       break;
     case 89:
-      env1_attack_msec =  (unsigned long)value * 10000 / 127 ;
+      //log scale:
+      env1_attack_msec =  (1/log10(129-(unsigned long)value)) * 10000 - 4738;
+      // linear version:
+      //env1_attack_msec =  (unsigned long)value * 10000 / 127 ;
       break;
     case 90:
-      env1_decay_msec = (unsigned long)value * 10000 / 127;
+      //log scale:
+      env1_decay_msec =  (1/log10(129-(unsigned long)value)) * 10000 - 4738;
+      // linear version:
+      //env1_decay_msec = log10 (1 + value) * 10;         //  max 20sec;
+
+      //env1_decay_msec = (unsigned long)value * 10000 / 127;
       break;
     case 91:
       env1_sustain = (unsigned long)value * 4095 / 127 ;
       env_at_half_decay =   env1_sustain + ((env1_max - env1_sustain) / 5) ;
       break;
     case 92:
-      env1_release =  (unsigned long)value * 10000 / 127 ;
+      //log scale:
+      env1_release_msec =  (1/log10(129-(unsigned long)value)) * 10000 - 4738;
+      // linear version:
+      //env1_release_msec =  (unsigned long)value * 10000 / 127 ;
       env_at_half_release =  ( env1_sustain - env1_min ) / 5 ;
       break;
     case 97:
@@ -309,7 +320,6 @@ void lfo1_noise() {
 
 
 void adsr_attack(){
-  Serial.println("here");
     // attack section
     // first_half
     if ((env1_attack_msec / 2) != 0) {
@@ -348,17 +358,17 @@ void adsr_sustain(){
 
 void adsr_release(){
   
-    if ((env1_release / 2) == 0) {
+    if ((env1_release_msec / 2) == 0) {
       env1_value = 0;
     }
     else {
       // Release section
       // trick to make it fake exponential... divide the release time by 2, start with a steeper slope
-      if ((now_msec - note_off_time_msec) <= (env1_release / 2)) {
-        env1_value = env_at_note_off - ((now_msec - note_off_time_msec) * (env_at_note_off - env_at_half_release)) / (env1_release / 2)  ;
+      if ((now_msec - note_off_time_msec) <= (env1_release_msec / 2)) {
+        env1_value = env_at_note_off - ((now_msec - note_off_time_msec) * (env_at_note_off - env_at_half_release)) / (env1_release_msec / 2)  ;
       }
-      else if ((now_msec - note_off_time_msec) <= env1_release) { // Release section
-        env1_value = env_at_half_release - ((now_msec - note_off_time_msec - env1_release / 2) * (env_at_half_release - env1_min)) / (env1_release / 2) ;
+      else if ((now_msec - note_off_time_msec) <= env1_release_msec) { // Release section
+        env1_value = env_at_half_release - ((now_msec - note_off_time_msec - env1_release_msec / 2) * (env_at_half_release - env1_min)) / (env1_release_msec / 2) ;
       }
       else { // note off
         env1_value = 0;
@@ -449,4 +459,5 @@ void loop() {
   setOutput_filter((unsigned int)curr_filter);
 
 }
+
 
