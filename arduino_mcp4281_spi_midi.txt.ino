@@ -2,63 +2,88 @@
 #include <SPI.h>
 #include <StackArray.h>
 
+
+/*
+  NOTES
+  void keyword  N/A
+  boolean 1 byte
+  byte 8 bit               0 to 255
+  char  1 byte             -128 to 127
+  unsigned char 1 byte
+  int 2 byte               -32768 to 32767
+  unsigned int  2 byte     0 to 65535
+  word  2 byte  0-65535
+  long  4 byte             -2,147,483,648 to 2,147,483,647
+  unsigned long 4 byte     0 to 4,294,967,295
+  float 4 byte             -3.4028235E38 to 3.4028235E38
+  double  4 byte
+  string  1 byte + x
+  array 1 byte + x
+  enum  N/A
+  struct  N/A
+  pointer N/A
+*/
+
 const int PIN_GATE = 45;
 const int PIN_CS_PITCH = 44;
 const int PIN_CS_FILTER = 46;
 const int GAIN_1 = 0x1;
 const int GAIN_2 = 0x0;
 MIDI_CREATE_INSTANCE(HardwareSerial, Serial1, midiA);
-const int pitch_max = 4095;
-const int notes_max = 60;
-const int notes_lowest = 24;
+const unsigned int pitch_max = 4095;
+const byte notes_max = 60;
+const byte notes_lowest = 24;
 // min note 24
 // max note 84, 5 oct
 // max note 96, 6 oct
 
-long env_trig_time = 0;
-long note_change_time = 0;
-long note_off_time = 0;
-int last_pitch = 0;
-int curr_pitch = 0;
-float velocity = 0;
-float velocity_scaling = 90; // 0-100
+unsigned long env_trig_time_msec = 0;
+unsigned long note_change_time_msec = 0;
+unsigned long note_off_time_msec = 0;
+unsigned int last_pitch = 0;
+unsigned int curr_pitch = 0;
+unsigned int velocity = 0;
+unsigned int velocity_scaling = 90; // 0-100
 
 
-// this is double otherwise some operations overflow... check carefully
-double now = 0;
-double now_sec = 0;
-double now_msec = 0; 
+unsigned long now_usec = 0;
+unsigned long now_sec = 0;
+unsigned long now_msec = 0;
 bool legato = true;
 bool first_note = true;
 bool portamento = false;
-long slide_time = 100000;
+unsigned long slide_time_msec = 100;
 bool note_on = false;
-StackArray <int> note_stack;
+StackArray <unsigned int> note_stack;
 
-int vcf = 0;
-int vcf_env_amt = 2048;
-const int vcf_env_amt_max = 4095;
-long env1_attack = 100000; //milliseconds
-long env1_decay = 1000000;
-int env1_sustain = 2000;
-long env1_release = 2000000;
-int env_at_note_off = 0;
-int env_at_half_note_off = 0;
-const int env1_min = 0;
-const int env1_max = 4095;
+
+unsigned int vcf = 0;
+unsigned long vcf_env_amt = 0;
+const unsigned long vcf_env_amt_max = 4095;
+unsigned long env1_attack_msec = 0; //milliseconds
+unsigned long env1_decay_msec = 0;
+unsigned long env1_sustain = 0;
+unsigned long env1_release = 0;
+unsigned int env_at_note_off = 0;
+unsigned int env_at_half_release = 1000; //this will be overwritten
+unsigned int env_at_half_decay = 3000; //this will be overwritten
+unsigned int env_at_half_attack = 3200; // this is fixed
+const unsigned int env1_min = 0;
+const unsigned int env1_max = 4095;
+unsigned long env1_value = 0;
 bool env_trig = false;
-const int filter_max = 4095;
-float curr_filter = 0;
-int bent_pitch = 0;
-int pitch_bend_cv = 0;
-int pitch_bend_max = 8192;
-int pitch_bend_notes = 12;
+const unsigned int filter_max = 4095;
+unsigned long curr_filter = 0;
+unsigned int bent_pitch = 0;
+unsigned int pitch_bend_cv = 0;
+unsigned int pitch_bend_max = 8192;
+unsigned int pitch_bend_notes = 12;
 
-int lfo1_type = 0; // 0 = square, 1 = saw, 2 = sine, 3 = random
-float lfo1_rate = 1;
-float lfo1_value = 0;
-float lfo1_amount = 0;
-float lfo1_amount_max = 127;
+unsigned int lfo1_type = 0; // 0 = square, 1 = saw, 2 = sine, 3 = random
+unsigned long lfo1_rate = 1;
+unsigned int lfo1_value = 0;
+unsigned int lfo1_amount = 0;
+unsigned int lfo1_amount_max = 127;
 
 void setup() {
   Serial.begin(9600);
@@ -77,29 +102,35 @@ void setup() {
 
 void handleNoteOn(byte inChannel, byte inNote, byte inVelocity)
 {
-  note_change_time = micros();
-  int note_cv = pitch_max / notes_max * (inNote - notes_lowest);
+  note_change_time_msec = now_msec;
   last_pitch = curr_pitch;
   if (note_stack.isEmpty()) {
     env_trig = true;
-    env_trig_time = micros();
+    env_trig_time_msec = now_msec ;
   }
-  note_stack.push(note_cv);
-  if (note_stack.count() > 1) {
+  else {
     first_note = false;
   }
+  unsigned int in_pitch = pitch_max / notes_max * (inNote - notes_lowest) ;
+  note_stack.push( in_pitch );
   note_on = true;
+
 }
 
 void handleNoteOff(byte inChannel, byte inNote, byte inVelocity)
 {
-  note_change_time = micros();
+  note_change_time_msec = now_msec;
+
+  unsigned int in_pitch = pitch_max / notes_max * (inNote - notes_lowest);
+
+
   if (!note_stack.isEmpty()) {
-    last_pitch = note_stack.pop();
+    last_pitch = in_pitch;
+    note_stack.pop();
   }
   if (note_stack.isEmpty()) {
-    note_off_time = micros();
-    env_at_note_off = curr_filter;
+    note_off_time_msec = now_msec;
+    env_at_note_off = env1_value;
     first_note = true;
     note_on = false;
   }
@@ -151,28 +182,31 @@ void handleControlChange(byte channel, byte number, byte value) {
       vcf = (float)value / 127 * 4095;
       break;
     case 83:
-      vcf_env_amt = (float)value / 127 * 4095; // to be implemented
+
+      vcf_env_amt = ((unsigned long)value * 4095) / 127 ;
       break;
     case 84:
       lfo1_amount = value;
       break;
     case 89:
-      env1_attack = (float)value / 127 * 1000000;
+      env1_attack_msec =  (unsigned long)value * 10000 / 127 ;
       break;
     case 90:
-      env1_decay = (float)value / 127 * 1000000;
+      env1_decay_msec = (unsigned long)value * 10000 / 127;
       break;
     case 91:
-      env1_sustain = (float)value / 127 * 4095;
+      env1_sustain = (unsigned long)value * 4095 / 127 ;
+      env_at_half_decay =   env1_sustain + ((env1_max - env1_sustain) / 5) ;
       break;
     case 92:
-      env1_release = (float)value / 127 * 10000000;
+      env1_release =  (unsigned long)value * 10000 / 127 ;
+      env_at_half_release =  ( env1_sustain - env1_min ) / 5 ;
       break;
     case 97:
-      slide_time = (float)value / 127 * 1000000;
+      slide_time_msec = (unsigned long)value * 1000 / 127;
       break;
     case 98:
-      lfo1_rate = 1 + (float)value;
+      lfo1_rate = (unsigned long)value;
       break;
   }
 }
@@ -217,7 +251,9 @@ void setOutput(byte channel, byte gain, byte shutdown, unsigned int val)
 }
 
 void lfo1_square() {
-  if (   ((int)((now_sec) / ((1 / lfo1_rate) / 2) ) % 2) == 0) {
+  if (lfo1_rate == 0) {
+    lfo1_value = 0;
+  } else if (   ((int)((now_sec) / ((1 / lfo1_rate) / 2) ) % 2) == 0) {
     lfo1_value = 4095;
   }
   else {
@@ -226,30 +262,44 @@ void lfo1_square() {
 }
 
 void lfo1_saw() {
-
-  long period_usec = 1 / (lfo1_rate / 1000000);
-
-  long long y = (long)now % period_usec;
-  lfo1_value = ((float) ((4095 * y) /  (period_usec)) );
-
-
-
+  if (lfo1_rate == 0) {
+    lfo1_value = 0;
+  }
+  else {
+    long period_usec = 1 / (lfo1_rate / 1000000);
+    if (period_usec == 0) {
+      lfo1_value = 0;
+    }
+    else {
+      long long y = (long)now_usec % period_usec;
+      lfo1_value = ((float) ((4095 * y) /  (period_usec)) );
+    }
+  }
 }
 
 void lfo1_triangle() {
-
-  long period_usec = 1 / (lfo1_rate / 1000000);
-  
-  long long y = (long long)now % period_usec;
- 
-  float value =  ((float) ((4095 * y) /  (period_usec)) );
-
-  if ((((int)floor(now * (lfo1_rate / 1000000))) % 2) == 0) {
-    lfo1_value = value;
+  if (lfo1_rate == 0) {
+    lfo1_value = 0;
   }
   else {
 
-    lfo1_value =  4095 - value;
+    long period_usec = 1 / (lfo1_rate / 1000000);
+    if (period_usec == 0) {
+      lfo1_value = 0;
+    }
+    else {
+      long long y = (long long)now_usec % period_usec;
+
+      float value =  ((float) ((4095 * y) /  (period_usec)) );
+
+      if ((((int)floor(now_usec * (lfo1_rate / 1000000))) % 2) == 0) {
+        lfo1_value = value;
+      }
+      else {
+
+        lfo1_value =  4095 - value;
+      }
+    }
   }
 }
 
@@ -257,76 +307,131 @@ void lfo1_noise() {
 }
 
 
-void loop() {
-  midiA.read();
-  //TODO: ADD CHECK FOR OVERFLOW
-  now = micros();
-  now_msec = now / 1000;
-  now_sec = now / 1000000;
 
-  switch (lfo1_type) {
-    case 0:
-      lfo1_square();
-      break;
-    case 1:
-      lfo1_saw();
-      break;
-    case 2:
-      lfo1_triangle();
-      break;
-    case 3:
-      lfo1_noise();
-      break;
-  }
-
-
-  // PITCH
-  if (!note_stack.isEmpty()) {
-    if ((now > (note_change_time + slide_time ))  || ((legato) && (first_note ))  ) { // normal pitch section
-      curr_pitch = note_stack.peek() + pitch_bend_cv; //TODO: change from peek to the highest note
+void adsr_attack(){
+  Serial.println("here");
+    // attack section
+    // first_half
+    if ((env1_attack_msec / 2) != 0) {
+      if (((now_msec - env_trig_time_msec) <= env1_attack_msec / 2) && env_trig ) {
+        env1_value =  (env1_min + (now_msec - env_trig_time_msec) * ((env_at_half_attack) - env1_min) / (env1_attack_msec / 2) );
+      }
+      // second_half
+      else if (((now_msec - env_trig_time_msec) <= env1_attack_msec) && env_trig ) {
+        env1_value =  (env_at_half_attack + (now_msec - (env_trig_time_msec + env1_attack_msec / 2)) * (env1_max - env_at_half_attack) / (env1_attack_msec / 2) );
+      }
     }
-    else if ((portamento) || ((legato) && (note_stack.count() >= 1))  ) { // portamento section, or legato
-      curr_pitch = last_pitch + (now - note_change_time) * (note_stack.peek() - last_pitch) / slide_time + pitch_bend_cv ;
+  
+}
+
+void adsr_decay(){
+
+    if ((env1_decay_msec / 2) != 0) {
+      // decay section
+      //first half
+      if  (((now_msec - env_trig_time_msec)  > env1_attack_msec ) && ((now_msec - env_trig_time_msec) <= (env1_attack_msec + env1_decay_msec / 2) ) && env_trig)   {
+        env1_value = env1_max - (((now_msec - (env_trig_time_msec + env1_attack_msec)) * (env1_max - env_at_half_decay)) / (env1_decay_msec / 2))   ;
+      }
+      //second half
+      else if  (((now_msec - env_trig_time_msec)  > env1_attack_msec ) && ((now_msec - env_trig_time_msec) <= (env1_attack_msec + env1_decay_msec) ) && env_trig)   {
+        env1_value = env_at_half_decay - (((now_msec - (env_trig_time_msec + env1_attack_msec + env1_decay_msec / 2 )) * (env_at_half_decay - env1_sustain)) / (env1_decay_msec / 2))   ;
+      }
     }
+}
 
-  }
+void adsr_sustain(){
 
+    if (((now_msec - env_trig_time_msec) > (env1_attack_msec + env1_decay_msec) ) && env_trig )  { // sustain section
+      env1_value =  env1_sustain  ;
+    }
+}
+
+void adsr_release(){
+  
+    if ((env1_release / 2) == 0) {
+      env1_value = 0;
+    }
+    else {
+      // Release section
+      // trick to make it fake exponential... divide the release time by 2, start with a steeper slope
+      if ((now_msec - note_off_time_msec) <= (env1_release / 2)) {
+        env1_value = env_at_note_off - ((now_msec - note_off_time_msec) * (env_at_note_off - env_at_half_release)) / (env1_release / 2)  ;
+      }
+      else if ((now_msec - note_off_time_msec) <= env1_release) { // Release section
+        env1_value = env_at_half_release - ((now_msec - note_off_time_msec - env1_release / 2) * (env_at_half_release - env1_min)) / (env1_release / 2) ;
+      }
+      else { // note off
+        env1_value = 0;
+        //digitalWrite(PIN_GATE, HIGH);
+      }
+    }
+}
+
+void adsr(){
 
   // ADSR
   if (!note_stack.isEmpty()) {
-
-    // attack section
-    if ((now <= (env_trig_time + env1_attack )) && env_trig ) {
-      curr_filter =  (env1_min + (now - env_trig_time) * (env1_max - env1_min) / (env1_attack) )   ;
-    }
-
-    // decay section
-    else if  (((now >= (env_trig_time + env1_attack )) && (now <= (env_trig_time + env1_decay )) && env_trig)  ) {
-      curr_filter = (env1_max + (now - env_trig_time) * (env1_sustain - env1_max) / env1_decay )  ;
-    }
-    else if ((now > (env_trig_time + env1_attack + env1_decay )) && env_trig )  { // sustain section
-      curr_filter =  env1_sustain  ;
-
-    }
+    adsr_attack();
+    adsr_decay();
+    adsr_sustain();
   }
   else {
-    // Release section
-    // trick to make it fake exponential... divide the release time by 2, start with a steeper slope
-    if ((now <= (note_off_time + env1_release / 2))) {
-      curr_filter = env_at_note_off + ( now -  note_off_time) * ( env1_min -  env_at_note_off) / (env1_release / 2)  ;
-      env_at_half_note_off = curr_filter;
+    adsr_release();
+  }
+}
+
+void pitch_cv(){
+  
+  // PITCH
+  if (!note_stack.isEmpty()) {
+    if ((now_msec > (note_change_time_msec + slide_time_msec ))  || ((legato) && (first_note )) || (slide_time_msec == 0) ) { // normal pitch section
+      curr_pitch = note_stack.peek() + pitch_bend_cv; //TODO: change from peek to the highest note
     }
-    else if ((now <= (note_off_time + env1_release))) { // Release section
-      curr_filter = env_at_half_note_off + ( now -  note_off_time) * ( env1_min -  env_at_half_note_off) / env1_release  ;
-    }
-    else { // note off
-      curr_filter = 0;
-      //digitalWrite(PIN_GATE, HIGH);
+    else if ((portamento) || ((legato) && (note_stack.count() >= 1)) ) { // portamento section, or legato
+
+      if (note_stack.peek() > last_pitch) {
+        curr_pitch = last_pitch + ((now_msec - note_change_time_msec) * (note_stack.peek() - last_pitch)) / slide_time_msec + pitch_bend_cv ;
+      }
+      else {
+        curr_pitch = last_pitch - ((now_msec - note_change_time_msec) * (last_pitch - note_stack.peek())) / slide_time_msec + pitch_bend_cv ;
+      }
+
+
     }
   }
+}
 
-  curr_filter = curr_filter * ((float)vcf_env_amt / vcf_env_amt_max) + vcf + lfo1_value * (lfo1_amount / lfo1_amount_max);
+void loop() {
+  midiA.read();
+  //TODO: ADD CHECK FOR OVERFLOW
+  now_usec = micros();
+  now_msec = now_usec / 1000;
+  now_sec = now_usec / 1000000;
 
+  /*
+    switch (lfo1_type) {
+      case 0:
+        lfo1_square();
+        break;
+      case 1:
+        lfo1_saw();
+        break;
+      case 2:
+        lfo1_triangle();
+        break;
+      case 3:
+        lfo1_noise();
+        break;
+    }
+  */
+
+  pitch_cv();
+  adsr();
+
+  curr_filter = (env1_value * vcf_env_amt) /  vcf_env_amt_max + vcf; //+ (lfo1_value * lfo1_amount) / lfo1_amount_max;
+
+
+  // boundaries for what the dac is capable of doing
   if (curr_pitch > pitch_max) {
     curr_pitch = pitch_max;
   }
@@ -340,6 +445,8 @@ void loop() {
   //Serial.println(curr_filter);
   //curr_filter = 300;
   //Serial.println(curr_filter);
-  setOutput((int)curr_pitch);
-  setOutput_filter((int)curr_filter);
+  setOutput(curr_pitch);
+  setOutput_filter((unsigned int)curr_filter);
+
 }
+
