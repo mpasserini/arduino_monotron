@@ -45,7 +45,6 @@ unsigned int curr_pitch = 0;
 unsigned int velocity = 0;
 unsigned int velocity_scaling = 90; // 0-100
 
-
 unsigned long now_usec = 0;
 unsigned long now_sec = 0;
 unsigned long now_msec = 0;
@@ -55,7 +54,6 @@ bool portamento = false;
 unsigned long slide_time_msec = 100;
 bool note_on = false;
 StackArray <unsigned int> note_stack;
-
 
 unsigned int vcf = 0;
 unsigned long vcf_env_amt = 0;
@@ -80,8 +78,8 @@ unsigned int pitch_bend_max = 8192;
 unsigned int pitch_bend_notes = 12;
 
 unsigned int lfo1_type = 0; // 0 = square, 1 = saw, 2 = sine, 3 = random
-unsigned long lfo1_rate = 1;
-unsigned int lfo1_value = 0;
+unsigned long lfo1_period_msec = 1000;
+unsigned long lfo1_value = 0;
 unsigned int lfo1_amount = 0;
 unsigned int lfo1_amount_max = 127;
 
@@ -120,10 +118,7 @@ void handleNoteOn(byte inChannel, byte inNote, byte inVelocity)
 void handleNoteOff(byte inChannel, byte inNote, byte inVelocity)
 {
   note_change_time_msec = now_msec;
-
   unsigned int in_pitch = pitch_max / notes_max * (inNote - notes_lowest);
-
-
   if (!note_stack.isEmpty()) {
     last_pitch = in_pitch;
     note_stack.pop();
@@ -145,7 +140,7 @@ void handleControlChange(byte channel, byte number, byte value) {
     case 65:
 
       if (value == 0) {
-        portamento = false; // portamento and legato  booleans should be fixed, they don't behave correctly
+        portamento = false; //TODO: portamento and legato  booleans should be fixed, they don't behave correctly, when both are 0 then there is a delay between notes
       }
       else {
         portamento = true;
@@ -164,12 +159,27 @@ void handleControlChange(byte channel, byte number, byte value) {
         lfo1_type = 0;
       }
       else {
+        lfo1_type = 1;
+      }
+      break;
+    case 68:
+      if (value == 0) {
         lfo1_type = 2;
+      }
+      else {
+        lfo1_type = 3;
+      }
+      break;
+    case 69:
+      if (value == 0) {
+        lfo1_type = 4;
+      }
+      else {
+        lfo1_type = 4;
       }
       break;
 
-
-    case 68:
+    case 70:
       if (value == 0) {
         pitch_bend_notes = 2;
       }
@@ -181,43 +191,48 @@ void handleControlChange(byte channel, byte number, byte value) {
     case 81:
       vcf = (float)value / 127 * 4095;
       break;
+      
     case 83:
-
       vcf_env_amt = ((unsigned long)value * 4095) / 127 ;
       break;
+
     case 84:
       lfo1_amount = value;
       break;
+      
     case 89:
       //log scale:
-      env1_attack_msec =  (1/log10(129-(unsigned long)value)) * 10000 - 4738;
+      env1_attack_msec =  (1 / log10(129 - (unsigned long)value)) * 10000 - 4738;
       // linear version:
       //env1_attack_msec =  (unsigned long)value * 10000 / 127 ;
       break;
+      
     case 90:
       //log scale:
-      env1_decay_msec =  (1/log10(129-(unsigned long)value)) * 10000 - 4738;
+      env1_decay_msec =  (1 / log10(129 - (unsigned long)value)) * 10000 - 4738;
       // linear version:
-      //env1_decay_msec = log10 (1 + value) * 10;         //  max 20sec;
-
       //env1_decay_msec = (unsigned long)value * 10000 / 127;
       break;
+      
     case 91:
       env1_sustain = (unsigned long)value * 4095 / 127 ;
       env_at_half_decay =   env1_sustain + ((env1_max - env1_sustain) / 5) ;
       break;
+      
     case 92:
       //log scale:
-      env1_release_msec =  (1/log10(129-(unsigned long)value)) * 10000 - 4738;
+      env1_release_msec =  (1 / log10(129 - (unsigned long)value)) * 10000 - 4738;
       // linear version:
       //env1_release_msec =  (unsigned long)value * 10000 / 127 ;
       env_at_half_release =  ( env1_sustain - env1_min ) / 5 ;
       break;
+      
     case 97:
       slide_time_msec = (unsigned long)value * 1000 / 127;
       break;
+      
     case 98:
-      lfo1_rate = (unsigned long)value;
+      lfo1_period_msec = 1 + (1 / log10(129 - (unsigned long)value)) * 10000 - 4738;
       break;
   }
 }
@@ -262,9 +277,9 @@ void setOutput(byte channel, byte gain, byte shutdown, unsigned int val)
 }
 
 void lfo1_square() {
-  if (lfo1_rate == 0) {
+  if (lfo1_period_msec == 0) {
     lfo1_value = 0;
-  } else if (   ((int)((now_sec) / ((1 / lfo1_rate) / 2) ) % 2) == 0) {
+  } else if (((now_msec / (lfo1_period_msec / 2) ) % 2) == 0) {
     lfo1_value = 4095;
   }
   else {
@@ -273,111 +288,111 @@ void lfo1_square() {
 }
 
 void lfo1_saw() {
-  if (lfo1_rate == 0) {
+  if (lfo1_period_msec == 0) {
     lfo1_value = 0;
   }
   else {
-    long period_usec = 1 / (lfo1_rate / 1000000);
-    if (period_usec == 0) {
-      lfo1_value = 0;
-    }
-    else {
-      long long y = (long)now_usec % period_usec;
-      lfo1_value = ((float) ((4095 * y) /  (period_usec)) );
-    }
+      unsigned long y = now_msec % lfo1_period_msec;
+      lfo1_value = (4095 * y) /  (lfo1_period_msec) ;
+  }
+}
+
+void lfo1_ramp() {
+  if (lfo1_period_msec == 0) {
+    lfo1_value = 0;
+  }
+  else {
+      unsigned long y = now_msec % lfo1_period_msec;
+      lfo1_value = 4095 - ((4095 * y) /  (lfo1_period_msec)) ;
   }
 }
 
 void lfo1_triangle() {
-  if (lfo1_rate == 0) {
+  if (lfo1_period_msec == 0) {
     lfo1_value = 0;
   }
   else {
-
-    long period_usec = 1 / (lfo1_rate / 1000000);
-    if (period_usec == 0) {
-      lfo1_value = 0;
-    }
-    else {
-      long long y = (long long)now_usec % period_usec;
-
-      float value =  ((float) ((4095 * y) /  (period_usec)) );
-
-      if ((((int)floor(now_usec * (lfo1_rate / 1000000))) % 2) == 0) {
+      unsigned long y = now_msec % lfo1_period_msec;
+      unsigned long value = (4095 * y) /  (lfo1_period_msec) ;
+      if ( ((now_msec/lfo1_period_msec) % 2) == 0) {
         lfo1_value = value;
       }
       else {
 
         lfo1_value =  4095 - value;
       }
+  }
+}
+
+void lfo1_random() {
+  if (lfo1_period_msec == 0) {
+    lfo1_value = 0;
+  } else if ((now_msec % (lfo1_period_msec / 2) ) == 0) {
+    lfo1_value = random(4095);
+  }
+}
+
+
+
+void adsr_attack() {
+  // attack section
+  // first_half
+  if ((env1_attack_msec / 2) != 0) {
+    if (((now_msec - env_trig_time_msec) <= env1_attack_msec / 2) && env_trig ) {
+      env1_value =  (env1_min + (now_msec - env_trig_time_msec) * ((env_at_half_attack) - env1_min) / (env1_attack_msec / 2) );
+    }
+    // second_half
+    else if (((now_msec - env_trig_time_msec) <= env1_attack_msec) && env_trig ) {
+      env1_value =  (env_at_half_attack + (now_msec - (env_trig_time_msec + env1_attack_msec / 2)) * (env1_max - env_at_half_attack) / (env1_attack_msec / 2) );
+    }
+  }
+
+}
+
+void adsr_decay() {
+
+  if ((env1_decay_msec / 2) != 0) {
+    // decay section
+    //first half
+    if  (((now_msec - env_trig_time_msec)  > env1_attack_msec ) && ((now_msec - env_trig_time_msec) <= (env1_attack_msec + env1_decay_msec / 2) ) && env_trig)   {
+      env1_value = env1_max - (((now_msec - (env_trig_time_msec + env1_attack_msec)) * (env1_max - env_at_half_decay)) / (env1_decay_msec / 2))   ;
+    }
+    //second half
+    else if  (((now_msec - env_trig_time_msec)  > env1_attack_msec ) && ((now_msec - env_trig_time_msec) <= (env1_attack_msec + env1_decay_msec) ) && env_trig)   {
+      env1_value = env_at_half_decay - (((now_msec - (env_trig_time_msec + env1_attack_msec + env1_decay_msec / 2 )) * (env_at_half_decay - env1_sustain)) / (env1_decay_msec / 2))   ;
     }
   }
 }
 
-void lfo1_noise() {
+void adsr_sustain() {
+
+  if (((now_msec - env_trig_time_msec) > (env1_attack_msec + env1_decay_msec) ) && env_trig )  { // sustain section
+    env1_value =  env1_sustain  ;
+  }
 }
 
+void adsr_release() {
 
-
-void adsr_attack(){
-    // attack section
-    // first_half
-    if ((env1_attack_msec / 2) != 0) {
-      if (((now_msec - env_trig_time_msec) <= env1_attack_msec / 2) && env_trig ) {
-        env1_value =  (env1_min + (now_msec - env_trig_time_msec) * ((env_at_half_attack) - env1_min) / (env1_attack_msec / 2) );
-      }
-      // second_half
-      else if (((now_msec - env_trig_time_msec) <= env1_attack_msec) && env_trig ) {
-        env1_value =  (env_at_half_attack + (now_msec - (env_trig_time_msec + env1_attack_msec / 2)) * (env1_max - env_at_half_attack) / (env1_attack_msec / 2) );
-      }
+  if ((env1_release_msec / 2) == 0) {
+    env1_value = 0;
+  }
+  else {
+    // Release section
+    // trick to make it fake exponential... divide the release time by 2, start with a steeper slope
+    if ((now_msec - note_off_time_msec) <= (env1_release_msec / 2)) {
+      env1_value = env_at_note_off - ((now_msec - note_off_time_msec) * (env_at_note_off - env_at_half_release)) / (env1_release_msec / 2)  ;
     }
-  
-}
-
-void adsr_decay(){
-
-    if ((env1_decay_msec / 2) != 0) {
-      // decay section
-      //first half
-      if  (((now_msec - env_trig_time_msec)  > env1_attack_msec ) && ((now_msec - env_trig_time_msec) <= (env1_attack_msec + env1_decay_msec / 2) ) && env_trig)   {
-        env1_value = env1_max - (((now_msec - (env_trig_time_msec + env1_attack_msec)) * (env1_max - env_at_half_decay)) / (env1_decay_msec / 2))   ;
-      }
-      //second half
-      else if  (((now_msec - env_trig_time_msec)  > env1_attack_msec ) && ((now_msec - env_trig_time_msec) <= (env1_attack_msec + env1_decay_msec) ) && env_trig)   {
-        env1_value = env_at_half_decay - (((now_msec - (env_trig_time_msec + env1_attack_msec + env1_decay_msec / 2 )) * (env_at_half_decay - env1_sustain)) / (env1_decay_msec / 2))   ;
-      }
+    else if ((now_msec - note_off_time_msec) <= env1_release_msec) { // Release section
+      env1_value = env_at_half_release - ((now_msec - note_off_time_msec - env1_release_msec / 2) * (env_at_half_release - env1_min)) / (env1_release_msec / 2) ;
     }
-}
-
-void adsr_sustain(){
-
-    if (((now_msec - env_trig_time_msec) > (env1_attack_msec + env1_decay_msec) ) && env_trig )  { // sustain section
-      env1_value =  env1_sustain  ;
-    }
-}
-
-void adsr_release(){
-  
-    if ((env1_release_msec / 2) == 0) {
+    else { // note off
       env1_value = 0;
+      //digitalWrite(PIN_GATE, HIGH);
     }
-    else {
-      // Release section
-      // trick to make it fake exponential... divide the release time by 2, start with a steeper slope
-      if ((now_msec - note_off_time_msec) <= (env1_release_msec / 2)) {
-        env1_value = env_at_note_off - ((now_msec - note_off_time_msec) * (env_at_note_off - env_at_half_release)) / (env1_release_msec / 2)  ;
-      }
-      else if ((now_msec - note_off_time_msec) <= env1_release_msec) { // Release section
-        env1_value = env_at_half_release - ((now_msec - note_off_time_msec - env1_release_msec / 2) * (env_at_half_release - env1_min)) / (env1_release_msec / 2) ;
-      }
-      else { // note off
-        env1_value = 0;
-        //digitalWrite(PIN_GATE, HIGH);
-      }
-    }
+  }
 }
 
-void adsr(){
+void adsr() {
 
   // ADSR
   if (!note_stack.isEmpty()) {
@@ -390,8 +405,8 @@ void adsr(){
   }
 }
 
-void pitch_cv(){
-  
+void pitch_cv() {
+
   // PITCH
   if (!note_stack.isEmpty()) {
     if ((now_msec > (note_change_time_msec + slide_time_msec ))  || ((legato) && (first_note )) || (slide_time_msec == 0) ) { // normal pitch section
@@ -405,42 +420,40 @@ void pitch_cv(){
       else {
         curr_pitch = last_pitch - ((now_msec - note_change_time_msec) * (last_pitch - note_stack.peek())) / slide_time_msec + pitch_bend_cv ;
       }
-
-
     }
   }
 }
 
 void loop() {
   midiA.read();
-  //TODO: ADD CHECK FOR OVERFLOW
   now_usec = micros();
   now_msec = now_usec / 1000;
   now_sec = now_usec / 1000000;
 
-  /*
-    switch (lfo1_type) {
-      case 0:
-        lfo1_square();
-        break;
-      case 1:
-        lfo1_saw();
-        break;
-      case 2:
-        lfo1_triangle();
-        break;
-      case 3:
-        lfo1_noise();
-        break;
-    }
-  */
+
+  switch (lfo1_type) {
+    case 0:
+      lfo1_square();
+      break;
+    case 1:
+      lfo1_triangle();
+      break;
+    case 2:
+      lfo1_saw();
+      break;
+    case 3:
+      lfo1_ramp();
+      break;
+    case 4:
+      lfo1_random();
+      break;
+  }
 
   pitch_cv();
   adsr();
-
-  curr_filter = (env1_value * vcf_env_amt) /  vcf_env_amt_max + vcf; //+ (lfo1_value * lfo1_amount) / lfo1_amount_max;
-
-
+  
+  curr_filter = (env1_value * vcf_env_amt) /  vcf_env_amt_max + vcf + (lfo1_value * lfo1_amount) / lfo1_amount_max;
+  
   // boundaries for what the dac is capable of doing
   if (curr_pitch > pitch_max) {
     curr_pitch = pitch_max;
@@ -448,7 +461,6 @@ void loop() {
   if (curr_filter > filter_max) { // clear up too big numbers
     curr_filter = filter_max;
   }
-
 
   // scale based on velocity
   //curr_filter = curr_filter * velocity;
