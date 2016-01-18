@@ -79,7 +79,7 @@ unsigned int pitch_bend_notes = 12;
 
 unsigned int lfo1_type = 0; // 0 = square, 1 = saw, 2 = sine, 3 = random
 unsigned long lfo1_period_msec = 1000;
-unsigned long lfo1_value = 0;
+
 unsigned int lfo1_amount = 0;
 unsigned int lfo1_amount_max = 127;
 
@@ -191,7 +191,7 @@ void handleControlChange(byte channel, byte number, byte value) {
     case 81:
       vcf = (float)value / 127 * 4095;
       break;
-      
+
     case 83:
       vcf_env_amt = ((unsigned long)value * 4095) / 127 ;
       break;
@@ -199,26 +199,26 @@ void handleControlChange(byte channel, byte number, byte value) {
     case 84:
       lfo1_amount = value;
       break;
-      
+
     case 89:
       //log scale:
       env1_attack_msec =  (1 / log10(129 - (unsigned long)value)) * 10000 - 4738;
       // linear version:
       //env1_attack_msec =  (unsigned long)value * 10000 / 127 ;
       break;
-      
+
     case 90:
       //log scale:
       env1_decay_msec =  (1 / log10(129 - (unsigned long)value)) * 10000 - 4738;
       // linear version:
       //env1_decay_msec = (unsigned long)value * 10000 / 127;
       break;
-      
+
     case 91:
       env1_sustain = (unsigned long)value * 4095 / 127 ;
       env_at_half_decay =   env1_sustain + ((env1_max - env1_sustain) / 5) ;
       break;
-      
+
     case 92:
       //log scale:
       env1_release_msec =  (1 / log10(129 - (unsigned long)value)) * 10000 - 4738;
@@ -226,11 +226,11 @@ void handleControlChange(byte channel, byte number, byte value) {
       //env1_release_msec =  (unsigned long)value * 10000 / 127 ;
       env_at_half_release =  ( env1_sustain - env1_min ) / 5 ;
       break;
-      
+
     case 97:
       slide_time_msec = (unsigned long)value * 1000 / 127;
       break;
-      
+
     case 98:
       lfo1_period_msec = 1 + (1 / log10(129 - (unsigned long)value)) * 10000 - 4738;
       break;
@@ -276,114 +276,109 @@ void setOutput(byte channel, byte gain, byte shutdown, unsigned int val)
   PORTB |= 0x4;
 }
 
-void lfo1_square() {
-  if (lfo1_period_msec == 0) {
-    lfo1_value = 0;
-  } else if (((now_msec / (lfo1_period_msec / 2) ) % 2) == 0) {
-    lfo1_value = 4095;
+unsigned long lfo_square(unsigned long period, unsigned long current_time) {
+  unsigned long lfo_value = 0;
+  if ((period != 0) && (((current_time / (period / 2) ) % 2) == 0)) {
+    lfo_value = 4095;
   }
-  else {
-    lfo1_value = 0;
+  return lfo_value;
+}
+
+unsigned long lfo_saw(unsigned long period, unsigned long current_time) {
+  unsigned long lfo_value = 0;
+  if (period != 0) {
+    unsigned long y = current_time % period;
+    lfo_value = (4095 * y) /  (period) ;
+  }
+  return lfo_value;
+}
+
+unsigned long lfo_ramp(unsigned long period, unsigned long current_time) {
+  unsigned long lfo_value = 0;
+  if (period != 0) {
+    unsigned long y = current_time % period;
+    lfo_value = 4095 - ((4095 * y) /  (period)) ;
+  }
+  return lfo_value;
+}
+
+unsigned long lfo_triangle(unsigned long period, unsigned long current_time) {
+  unsigned long lfo_value = 0;
+  if (period != 0) {
+    unsigned long y = current_time % period;
+    unsigned long value = (4095 * y) /  (period) ;
+    if ( ((current_time / period) % 2) == 0) {
+      lfo_value = value;
+    }
+    else {
+      lfo_value =  4095 - value;
+    }
   }
 }
 
-void lfo1_saw() {
-  if (lfo1_period_msec == 0) {
-    lfo1_value = 0;
+unsigned long lfo_random(unsigned long period, unsigned long current_time) {
+  unsigned long lfo_value = 0;
+  if ((period != 0) && ((current_time % (period / 2) ) == 0)) {
+    lfo_value = random(4095);
   }
-  else {
-      unsigned long y = now_msec % lfo1_period_msec;
-      lfo1_value = (4095 * y) /  (lfo1_period_msec) ;
-  }
-}
-
-void lfo1_ramp() {
-  if (lfo1_period_msec == 0) {
-    lfo1_value = 0;
-  }
-  else {
-      unsigned long y = now_msec % lfo1_period_msec;
-      lfo1_value = 4095 - ((4095 * y) /  (lfo1_period_msec)) ;
-  }
-}
-
-void lfo1_triangle() {
-  if (lfo1_period_msec == 0) {
-    lfo1_value = 0;
-  }
-  else {
-      unsigned long y = now_msec % lfo1_period_msec;
-      unsigned long value = (4095 * y) /  (lfo1_period_msec) ;
-      if ( ((now_msec/lfo1_period_msec) % 2) == 0) {
-        lfo1_value = value;
-      }
-      else {
-
-        lfo1_value =  4095 - value;
-      }
-  }
-}
-
-void lfo1_random() {
-  if (lfo1_period_msec == 0) {
-    lfo1_value = 0;
-  } else if ((now_msec % (lfo1_period_msec / 2) ) == 0) {
-    lfo1_value = random(4095);
-  }
+  return lfo_value;
 }
 
 
-
-void adsr_attack() {
+//NOTE: side effects on env1_value
+unsigned long adsr_attack(unsigned long attack_time, unsigned long current_time, unsigned long trig_time, bool trig_state, unsigned long half_attack_value) {
   // attack section
   // first_half
-  if ((env1_attack_msec / 2) != 0) {
-    if (((now_msec - env_trig_time_msec) <= env1_attack_msec / 2) && env_trig ) {
-      env1_value =  (env1_min + (now_msec - env_trig_time_msec) * ((env_at_half_attack) - env1_min) / (env1_attack_msec / 2) );
+  if ((attack_time / 2) != 0) {
+    if (((current_time - trig_time) <= attack_time / 2) && trig_state ) {
+      env1_value =  (env1_min + (current_time - trig_time) * ((half_attack_value) - env1_min) / (attack_time / 2) );
     }
     // second_half
-    else if (((now_msec - env_trig_time_msec) <= env1_attack_msec) && env_trig ) {
-      env1_value =  (env_at_half_attack + (now_msec - (env_trig_time_msec + env1_attack_msec / 2)) * (env1_max - env_at_half_attack) / (env1_attack_msec / 2) );
+    else if (((current_time - trig_time) <= attack_time) && trig_state ) {
+      env1_value =  (half_attack_value + (current_time - (trig_time + attack_time / 2)) * (env1_max - half_attack_value) / (attack_time / 2) );
     }
   }
 
 }
 
-void adsr_decay() {
+//NOTE: side effects on env1_value
+void adsr_decay(unsigned long decay_time, unsigned long current_time, unsigned long trig_time, bool trig_state, unsigned long half_decay_value, unsigned long attack_time, unsigned long sustain_value) {
 
-  if ((env1_decay_msec / 2) != 0) {
+  if ((decay_time / 2) != 0) {
     // decay section
     //first half
-    if  (((now_msec - env_trig_time_msec)  > env1_attack_msec ) && ((now_msec - env_trig_time_msec) <= (env1_attack_msec + env1_decay_msec / 2) ) && env_trig)   {
-      env1_value = env1_max - (((now_msec - (env_trig_time_msec + env1_attack_msec)) * (env1_max - env_at_half_decay)) / (env1_decay_msec / 2))   ;
+    if  (((current_time - trig_time)  > attack_time ) && ((current_time - trig_time) <= (attack_time + decay_time / 2) ) && trig_state)   {
+      env1_value = env1_max - (((current_time - (trig_time + attack_time)) * (env1_max - half_decay_value)) / (decay_time / 2))   ;
     }
     //second half
-    else if  (((now_msec - env_trig_time_msec)  > env1_attack_msec ) && ((now_msec - env_trig_time_msec) <= (env1_attack_msec + env1_decay_msec) ) && env_trig)   {
-      env1_value = env_at_half_decay - (((now_msec - (env_trig_time_msec + env1_attack_msec + env1_decay_msec / 2 )) * (env_at_half_decay - env1_sustain)) / (env1_decay_msec / 2))   ;
+    else if  (((current_time - trig_time)  > attack_time ) && ((current_time - trig_time) <= (attack_time + decay_time) ) && trig_state)   {
+      env1_value = half_decay_value - (((current_time - (trig_time + attack_time + decay_time / 2 )) * (half_decay_value - sustain_value)) / (decay_time / 2))   ;
     }
   }
 }
 
-void adsr_sustain() {
+//NOTE: side effects on env1_value
+void adsr_sustain(unsigned long sustain_value, unsigned long current_time, unsigned long trig_time, bool trig_state, unsigned long attack_time, unsigned long decay_time) {
 
-  if (((now_msec - env_trig_time_msec) > (env1_attack_msec + env1_decay_msec) ) && env_trig )  { // sustain section
-    env1_value =  env1_sustain  ;
+  if (((current_time - trig_time) > (attack_time + decay_time) ) && trig_state )  { // sustain section
+    env1_value =  sustain_value  ;
   }
 }
 
-void adsr_release() {
+//NOTE: side effects on env1_value
+void adsr_release(unsigned long release_time, unsigned long current_time, unsigned long untrig_time, unsigned long half_release_value, unsigned long note_off_value ) {
 
-  if ((env1_release_msec / 2) == 0) {
+  if ((release_time / 2) == 0) {
     env1_value = 0;
   }
   else {
     // Release section
     // trick to make it fake exponential... divide the release time by 2, start with a steeper slope
-    if ((now_msec - note_off_time_msec) <= (env1_release_msec / 2)) {
-      env1_value = env_at_note_off - ((now_msec - note_off_time_msec) * (env_at_note_off - env_at_half_release)) / (env1_release_msec / 2)  ;
+    if ((current_time - untrig_time) <= (release_time / 2)) {
+      env1_value = note_off_value - ((current_time - untrig_time) * (note_off_value - half_release_value)) / (release_time / 2)  ;
     }
-    else if ((now_msec - note_off_time_msec) <= env1_release_msec) { // Release section
-      env1_value = env_at_half_release - ((now_msec - note_off_time_msec - env1_release_msec / 2) * (env_at_half_release - env1_min)) / (env1_release_msec / 2) ;
+    else if ((current_time - untrig_time) <= release_time) { // Release section
+      env1_value = half_release_value - ((current_time - untrig_time - release_time / 2) * (half_release_value - env1_min)) / (release_time / 2) ;
     }
     else { // note off
       env1_value = 0;
@@ -396,12 +391,13 @@ void adsr() {
 
   // ADSR
   if (!note_stack.isEmpty()) {
-    adsr_attack();
-    adsr_decay();
-    adsr_sustain();
+    // watch out these functions have side effects right now, they modify env1_value, to be fixed
+    adsr_attack( env1_attack_msec,   now_msec, env_trig_time_msec, env_trig, env_at_half_attack );
+    adsr_decay( env1_decay_msec,     now_msec, env_trig_time_msec, env_trig, env_at_half_decay, env1_attack_msec, env1_sustain );
+    adsr_sustain( env1_sustain,      now_msec, env_trig_time_msec, env_trig, env1_attack_msec,  env1_decay_msec);
   }
   else {
-    adsr_release();
+    adsr_release(env1_release_msec, now_msec, note_off_time_msec, env_at_half_release , env_at_note_off);
   }
 }
 
@@ -425,6 +421,10 @@ void pitch_cv() {
 }
 
 void loop() {
+  // static
+  unsigned long lfo1_value = 0; 
+
+  
   midiA.read();
   now_usec = micros();
   now_msec = now_usec / 1000;
@@ -433,27 +433,27 @@ void loop() {
 
   switch (lfo1_type) {
     case 0:
-      lfo1_square();
+      lfo1_value = lfo_square(lfo1_period_msec, now_msec);
       break;
     case 1:
-      lfo1_triangle();
+      lfo1_value = lfo_triangle(lfo1_period_msec, now_msec);
       break;
     case 2:
-      lfo1_saw();
+      lfo1_value = lfo_saw(lfo1_period_msec, now_msec);
       break;
     case 3:
-      lfo1_ramp();
+      lfo1_value = lfo_ramp(lfo1_period_msec, now_msec);
       break;
     case 4:
-      lfo1_random();
+      lfo1_value = lfo_random(lfo1_period_msec, now_msec);
       break;
   }
 
   pitch_cv();
   adsr();
-  
+
   curr_filter = (env1_value * vcf_env_amt) /  vcf_env_amt_max + vcf + (lfo1_value * lfo1_amount) / lfo1_amount_max;
-  
+
   // boundaries for what the dac is capable of doing
   if (curr_pitch > pitch_max) {
     curr_pitch = pitch_max;
