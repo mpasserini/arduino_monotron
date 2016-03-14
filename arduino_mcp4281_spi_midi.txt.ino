@@ -3,6 +3,7 @@
 #include <StackArray.h>
 
 //http://www.ripmat.it/mate/d/dc/dcee.html
+//https://www.arduino.cc/en/Tutorial/DueSimpleWaveformGenerator
 /*
   NOTES
   void keyword  N/A
@@ -77,14 +78,42 @@ unsigned int pitch_bend_cv = 0;
 unsigned int pitch_bend_max = 8192;
 unsigned int pitch_bend_notes = 12;
 
-unsigned int lfo1_type = 0; // 0 = square, 1 = saw, 2 = sine, 3 = random
+unsigned int lfo1_type = 0; //
 unsigned long lfo1_period_msec = 1000;
 
 unsigned int lfo1_amount = 0;
 unsigned int lfo1_amount_max = 127;
 
+const int max_wave_types=1;
+const int  wave_table_resolution=100;
+unsigned int wave_table[max_wave_types][wave_table_resolution];
+
+
+
+const float pi = 3.14159;
+
 void setup() {
+
+  
   Serial.begin(9600);
+
+  // Fill in Sine wavetable
+  for (int i=0; i < wave_table_resolution; i++) {
+    float rads = ( 2 * pi * i) / wave_table_resolution;
+    wave_table[0][i] = (unsigned int) ((2048 * sin(rads)) + 2048);
+  }
+
+  // Fill in Square wavetable
+/*  for (int i=0; i < wave_table_resolution; i++) {
+    if (i < (wave_table_resolution / 2)){
+      wave_table[1][i] = 4096;
+    }
+    else {
+      wave_table[1][i] = 0;
+    }
+  }
+  */
+  
   midiA.begin(MIDI_CHANNEL_OMNI);
   midiA.setHandleNoteOn(handleNoteOn);
   midiA.setHandleNoteOff(handleNoteOff);
@@ -162,7 +191,7 @@ void handleControlChange(byte channel, byte number, byte value) {
         lfo1_type = 1;
       }
       break;
-    case 68:
+/*    case 68:
       if (value == 0) {
         lfo1_type = 2;
       }
@@ -178,8 +207,16 @@ void handleControlChange(byte channel, byte number, byte value) {
         lfo1_type = 4;
       }
       break;
-
     case 70:
+      if (value == 0) {
+        lfo1_type = 5;
+      }
+      else {
+        lfo1_type = 5; //////// EMPY?
+      }
+      break;
+*/
+    case 71:
       if (value == 0) {
         pitch_bend_notes = 2;
       }
@@ -276,6 +313,7 @@ void setOutput(byte channel, byte gain, byte shutdown, unsigned int val)
   PORTB |= 0x4;
 }
 
+/*
 unsigned long lfo_square(unsigned long period, unsigned long current_time) {
   unsigned long lfo_value = 0;
   if ((period != 0) && (((current_time / (period / 2) ) % 2) == 0)) {
@@ -322,6 +360,16 @@ unsigned long lfo_random(unsigned long period, unsigned long current_time) {
     lfo_value = random(4095);
   }
   return lfo_value;
+}
+*/
+
+
+
+  /////// TEST /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+unsigned int lfo_wavetable(unsigned long period, unsigned long current_time, unsigned int wave_table[][wave_table_resolution], int wave_table_type) {
+  // if period != 0
+  int wave_table_index = (wave_table_resolution * (current_time % period)) / period; //this is not passed as argument: wave_table_resolution
+  return wave_table[wave_table_type][wave_table_index];
 }
 
 
@@ -423,7 +471,6 @@ void pitch_cv() {
 void loop() {
   // static
   unsigned long lfo1_value = 0; 
-
   
   midiA.read();
   now_usec = micros();
@@ -431,11 +478,11 @@ void loop() {
   now_sec = now_usec / 1000000;
 
 
-  switch (lfo1_type) {
-    case 0:
-      lfo1_value = lfo_square(lfo1_period_msec, now_msec);
-      break;
-    case 1:
+
+  /////// TEST /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+  lfo1_value = lfo_wavetable(lfo1_period_msec, now_msec, wave_table, lfo1_type);
+ 
+/*    case 1:
       lfo1_value = lfo_triangle(lfo1_period_msec, now_msec);
       break;
     case 2:
@@ -447,12 +494,15 @@ void loop() {
     case 4:
       lfo1_value = lfo_random(lfo1_period_msec, now_msec);
       break;
-  }
-
+    case 5:
+      lfo1_value = lfo_sine(lfo1_period_msec, now_msec);
+      break;
+*/      
+  
   pitch_cv();
   adsr();
 
-  curr_filter = (env1_value * vcf_env_amt) /  vcf_env_amt_max + vcf + (lfo1_value * lfo1_amount) / lfo1_amount_max;
+  curr_filter = (env1_value * vcf_env_amt) /  vcf_env_amt_max + vcf + ((lfo1_value * lfo1_amount) / lfo1_amount_max) ;
 
   // boundaries for what the dac is capable of doing
   if (curr_pitch > pitch_max) {
