@@ -26,22 +26,15 @@
 */
 
 
-/*
-Ascending EXP:
-=EXP(-$A1/20)
-
-Descending EXP:
-=1-(EXP(-$A1/20))
-
-where 100 is the max A1 value
-*/
 const int PIN_GATE = 45;
 const int PIN_CS_PITCH = 44;
 const int PIN_CS_FILTER = 46;
 const int GAIN_1 = 0x1;
 const int GAIN_2 = 0x0;
 MIDI_CREATE_INSTANCE(HardwareSerial, Serial1, midiA);
-const unsigned int pitch_max = 4095;
+
+const unsigned int dac_max = 4095;
+
 const byte notes_max = 60;
 const byte notes_lowest = 24;
 // min note 24
@@ -68,7 +61,6 @@ StackArray <unsigned int> note_stack;
 
 unsigned int vcf = 0;
 unsigned long vcf_env_amt = 0;
-const unsigned long vcf_env_amt_max = 4095;
 unsigned long env1_attack_msec = 0; //milliseconds
 unsigned long env1_decay_msec = 0;
 unsigned long env1_sustain = 0;
@@ -78,10 +70,8 @@ unsigned int env_at_half_release = 1000; //this will be overwritten
 unsigned int env_at_half_decay = 3000; //this will be overwritten
 unsigned int env_at_half_attack = 3200; // this is fixed
 const unsigned int env1_min = 0;
-const unsigned int env1_max = 4095;
 unsigned long env1_value = 0;
 bool env_trig = false;
-const unsigned int filter_max = 4095;
 unsigned long curr_filter = 0;
 unsigned int bent_pitch = 0;
 unsigned int pitch_bend_cv = 0;
@@ -94,10 +84,11 @@ unsigned long lfo1_period_msec = 1000;
 unsigned int lfo1_amount = 0;
 unsigned int lfo1_amount_max = 127;
 
-const int max_wave_types=5;
+const int max_wave_types=7;
 const int  wave_table_resolution=100;
 unsigned int wave_table[max_wave_types][wave_table_resolution];
 
+unsigned int exp_curve = 3;
 
 
 const float pi = 3.14159;
@@ -116,7 +107,7 @@ void setup() {
   // Fill in Square wavetable
   for (int i=0; i < wave_table_resolution; i++) {
     if (i < (wave_table_resolution / 2)){
-      wave_table[1][i] = 4096;
+      wave_table[1][i] = dac_max;
     }
     else {
       wave_table[1][i] = 0;
@@ -125,23 +116,43 @@ void setup() {
 
   // Fill in Ramp up wavetable
   for (int i=0; i < wave_table_resolution; i++) {
-    wave_table[2][i] = (unsigned int)(((unsigned long)i * 4096) / wave_table_resolution);
+    wave_table[2][i] = (unsigned int)(((unsigned long)i * dac_max) / wave_table_resolution);
   }
 
   // Fill in Ramp down wavetable
   for (int i=0; i < wave_table_resolution; i++) {
-    wave_table[3][i] = (unsigned int)(4096 - (((unsigned long)i * 4096) / wave_table_resolution));
+    wave_table[3][i] = (unsigned int)(dac_max - (((unsigned long)i * dac_max) / wave_table_resolution));
   }
 
   // Fill in triangle wavetable
   for (int i=0; i < wave_table_resolution; i++) {
     if (i < (wave_table_resolution / 2)) {
-      wave_table[4][i] = (unsigned int)( (((unsigned long)i * 4096) / (wave_table_resolution/2)));
+      wave_table[4][i] = (unsigned int)( (((unsigned long)i * dac_max) / (wave_table_resolution/2)));
     }
     else {
-      wave_table[4][i] = (unsigned int)  4096 -   ((((unsigned long)i - wave_table_resolution/2 ) * 4096) / (wave_table_resolution/2))    ;      
+      wave_table[4][i] = (unsigned int)  dac_max -   ((((unsigned long)i - wave_table_resolution/2 ) * dac_max) / (wave_table_resolution/2))    ;      
     }
   }
+
+
+
+/*
+Ascending EXP:
+=EXP(-$A1/20)
+
+Descending EXP:
+=1-(EXP(-$A1/20))
+
+where 100 is the max A1 value
+*/
+  for (int i=0; i < wave_table_resolution; i++) {
+    wave_table[5][i] = (unsigned int) (dac_max * (   exp( (double)-i / ((double)wave_table_resolution/exp_curve)     )));
+  }
+
+  for (int i=0; i < wave_table_resolution; i++) {
+    wave_table[6][i] = (unsigned int) (dac_max * ( 1 - exp( (double)-i / ((double)wave_table_resolution/exp_curve))));
+  }
+
   
 
   
@@ -169,7 +180,7 @@ void handleNoteOn(byte inChannel, byte inNote, byte inVelocity)
   else {
     first_note = false;
   }
-  unsigned int in_pitch = pitch_max / notes_max * (inNote - notes_lowest) ;
+  unsigned int in_pitch = dac_max / notes_max * (inNote - notes_lowest) ;
   note_stack.push( in_pitch );
   note_on = true;
 
@@ -178,7 +189,7 @@ void handleNoteOn(byte inChannel, byte inNote, byte inVelocity)
 void handleNoteOff(byte inChannel, byte inNote, byte inVelocity)
 {
   note_change_time_msec = now_msec;
-  unsigned int in_pitch = pitch_max / notes_max * (inNote - notes_lowest);
+  unsigned int in_pitch = dac_max / notes_max * (inNote - notes_lowest);
   if (!note_stack.isEmpty()) {
     last_pitch = in_pitch;
     note_stack.pop();
@@ -192,7 +203,7 @@ void handleNoteOff(byte inChannel, byte inNote, byte inVelocity)
 }
 
 void handlePitchBend(byte channel, int bend) {
-  pitch_bend_cv =  ((long)bend * ((pitch_max / notes_max) * pitch_bend_notes) ) / pitch_bend_max;
+  pitch_bend_cv =  ((long)bend * ((dac_max / notes_max) * pitch_bend_notes) ) / pitch_bend_max;
 }
 
 void handleControlChange(byte channel, byte number, byte value) {
@@ -232,10 +243,10 @@ void handleControlChange(byte channel, byte number, byte value) {
       break;
     case 69:
       if (value == 0) {
-        lfo1_type = 4;
+        lfo1_type = 5;
       }
       else {
-        lfo1_type = 5;
+        lfo1_type = 6;
       }
       break;
 
@@ -249,11 +260,11 @@ void handleControlChange(byte channel, byte number, byte value) {
       break;
 
     case 81:
-      vcf = (float)value / 127 * 4095;
+      vcf = (float)value / 127 * dac_max;
       break;
 
     case 83:
-      vcf_env_amt = ((unsigned long)value * 4095) / 127 ;
+      vcf_env_amt = ((unsigned long)value * dac_max) / 127 ;
       break;
 
     case 84:
@@ -275,8 +286,8 @@ void handleControlChange(byte channel, byte number, byte value) {
       break;
 
     case 91:
-      env1_sustain = (unsigned long)value * 4095 / 127 ;
-      env_at_half_decay =   env1_sustain + ((env1_max - env1_sustain) / 5) ;
+      env1_sustain = (unsigned long)value * dac_max / 127 ;
+      env_at_half_decay =   env1_sustain + ((dac_max - env1_sustain) / 5) ;
       break;
 
     case 92:
@@ -354,7 +365,7 @@ unsigned long adsr_attack(unsigned long attack_time, unsigned long current_time,
     }
     // second_half
     else if (((current_time - trig_time) <= attack_time) && trig_state ) {
-      env1_value =  (half_attack_value + (current_time - (trig_time + attack_time / 2)) * (env1_max - half_attack_value) / (attack_time / 2) );
+      env1_value =  (half_attack_value + (current_time - (trig_time + attack_time / 2)) * (dac_max - half_attack_value) / (attack_time / 2) );
     }
   }
 
@@ -367,7 +378,7 @@ void adsr_decay(unsigned long decay_time, unsigned long current_time, unsigned l
     // decay section
     //first half
     if  (((current_time - trig_time)  > attack_time ) && ((current_time - trig_time) <= (attack_time + decay_time / 2) ) && trig_state)   {
-      env1_value = env1_max - (((current_time - (trig_time + attack_time)) * (env1_max - half_decay_value)) / (decay_time / 2))   ;
+      env1_value = dac_max - (((current_time - (trig_time + attack_time)) * (dac_max - half_decay_value)) / (decay_time / 2))   ;
     }
     //second half
     else if  (((current_time - trig_time)  > attack_time ) && ((current_time - trig_time) <= (attack_time + decay_time) ) && trig_state)   {
@@ -448,20 +459,25 @@ void loop() {
   now_msec = now_usec / 1000;
  // now_sec = now_usec / 1000000;
 
+
+  // todo: 
+  // change waveform when it reaches 0 only
+  // add random
+  // add trigger to mark lfo start time
   lfo1_value = lfo_wavetable(lfo1_period_msec, now_msec, wave_table, lfo1_type);
   
   
   pitch_cv();
   adsr();
 
-  curr_filter = (env1_value * vcf_env_amt) /  vcf_env_amt_max + vcf + ((lfo1_value * lfo1_amount) / lfo1_amount_max) ;
+  curr_filter = (env1_value * vcf_env_amt) /  dac_max + vcf + ((lfo1_value * lfo1_amount) / lfo1_amount_max) ;
 
   // boundaries for what the dac is capable of doing
-  if (curr_pitch > pitch_max) {
-    curr_pitch = pitch_max;
+  if (curr_pitch > dac_max) {
+    curr_pitch = dac_max;
   }
-  if (curr_filter > filter_max) { // clear up too big numbers
-    curr_filter = filter_max;
+  if (curr_filter > dac_max) { // clear up too big numbers
+    curr_filter = dac_max;
   }
 
   // scale based on velocity
