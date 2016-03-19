@@ -80,10 +80,12 @@ unsigned int pitch_bend_notes = 12;
 
 unsigned int lfo1_type = 0; //
 unsigned long lfo1_period_msec = 1000;
-
+unsigned long lfo1_period_msec_new = 1000;
+unsigned long lfo1_value = 0; 
 unsigned int lfo1_amount = 0;
 unsigned int lfo1_amount_max = 127;
 bool lfo_retrig = true;
+unsigned long lfo1_trig_time_msec = 0;
 
 const int max_wave_types=7;
 const int  wave_table_resolution=16; //increase for more precision, maybe not needed? It's  already interpolated
@@ -177,6 +179,7 @@ void handleNoteOn(byte inChannel, byte inNote, byte inVelocity)
   if (note_stack.isEmpty()) {
     env_trig = true;
     env_trig_time_msec = now_msec ;
+    lfo1_trig_time_msec = now_msec;
   }
   else {
     first_note = false;
@@ -208,6 +211,7 @@ void handlePitchBend(byte channel, int bend) {
 }
 
 void handleControlChange(byte channel, byte number, byte value) {
+
   switch (number) {
     case 65:
 
@@ -312,7 +316,7 @@ void handleControlChange(byte channel, byte number, byte value) {
       break;
 
     case 98:
-      lfo1_period_msec = 1 + (1 / log10(129 - (unsigned long)value)) * 10000 - 4738;
+      lfo1_period_msec_new = 1 + (1 / log10(129 - (unsigned long)value)) * 10000 - 4738;
       break;
   }
 }
@@ -359,16 +363,17 @@ void setOutput(byte channel, byte gain, byte shutdown, unsigned int val)
 
 unsigned int lfo_wavetable(unsigned long period, unsigned long current_time, unsigned int wave_table[][wave_table_resolution], int wave_table_type, unsigned long trig_time, bool lfo_retrig) {
   // if period != 0
+  float wave_table_index_float;
+  if (lfo_retrig == true){
+    wave_table_index_float = (float)(wave_table_resolution * ((current_time - trig_time) % period)) / period;
+  }
+  else {
+    wave_table_index_float = (float)(wave_table_resolution * (current_time % period)) / period;
+  }
 
-  float wave_table_index_float = (float)(wave_table_resolution * ((current_time - trig_time) % period)) / period;
   int wave_table_index = (int)wave_table_index_float;
   int wave_table_index_next = (wave_table_index + 1) % wave_table_resolution;
- 
-  return wave_table[wave_table_type][wave_table_index] + ((wave_table_index_float - wave_table_index) * ((int)wave_table[wave_table_type][wave_table_index_next] - (int)wave_table[wave_table_type][wave_table_index]));
-
-
-
-  
+  return wave_table[wave_table_type][wave_table_index] + ((wave_table_index_float - wave_table_index) * ((int)wave_table[wave_table_type][wave_table_index_next] - (int)wave_table[wave_table_type][wave_table_index]));  
 }
 
 
@@ -471,7 +476,6 @@ void pitch_cv() {
 
 void loop() {
   // static
-  unsigned long lfo1_value = 0; 
   
   midiA.read();
   now_usec = micros();
@@ -480,10 +484,20 @@ void loop() {
 
 
   // todo: 
-  // change waveform when it reaches 0 only
   // add random
-  // add trigger to mark lfo start time
-  lfo1_value = lfo_wavetable(lfo1_period_msec, now_msec, wave_table, lfo1_type, env_trig_time_msec, lfo_retrig);
+  // fix attack / lfo interaction
+  // lfo envelope?
+  // multiple lfos
+  
+  unsigned int lfo1_value_prev = lfo1_value;
+  lfo1_value = lfo_wavetable(lfo1_period_msec, now_msec, wave_table, lfo1_type, lfo1_trig_time_msec, lfo_retrig);    
+  if (lfo1_period_msec != lfo1_period_msec_new){
+    if (lfo1_value >= 2048 && lfo1_value_prev <= 2048){
+       lfo1_period_msec = lfo1_period_msec_new;
+       lfo1_trig_time_msec = now_msec;
+       lfo1_value = lfo_wavetable(lfo1_period_msec, now_msec, wave_table, lfo1_type, lfo1_trig_time_msec, lfo_retrig);
+    }
+  }
  
   
   pitch_cv();
