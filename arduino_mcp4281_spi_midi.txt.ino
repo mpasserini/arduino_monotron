@@ -85,7 +85,7 @@ unsigned int lfo1_amount = 0;
 unsigned int lfo1_amount_max = 127;
 
 const int max_wave_types=7;
-const int  wave_table_resolution=100;
+const int  wave_table_resolution=16;
 unsigned int wave_table[max_wave_types][wave_table_resolution];
 
 unsigned int exp_curve = 3;
@@ -350,9 +350,19 @@ void setOutput(byte channel, byte gain, byte shutdown, unsigned int val)
 
 unsigned int lfo_wavetable(unsigned long period, unsigned long current_time, unsigned int wave_table[][wave_table_resolution], int wave_table_type) {
   // if period != 0
-  int wave_table_index = (wave_table_resolution * (current_time % period)) / period; //this is not passed as argument: wave_table_resolution
-  return wave_table[wave_table_type][wave_table_index];
+
+  float wave_table_index_float = (float)(wave_table_resolution * ((current_time) % period)) / period;
+  int wave_table_index = (int)wave_table_index_float;
+  int wave_table_index_next = (wave_table_index + 1) % wave_table_resolution;
+ 
+  return wave_table[wave_table_type][wave_table_index] + ((wave_table_index_float - wave_table_index) * ((int)wave_table[wave_table_type][wave_table_index_next] - (int)wave_table[wave_table_type][wave_table_index]));
+
+
+
+  
 }
+
+
 
 
 //NOTE: side effects on env1_value
@@ -465,7 +475,7 @@ void loop() {
   // add random
   // add trigger to mark lfo start time
   lfo1_value = lfo_wavetable(lfo1_period_msec, now_msec, wave_table, lfo1_type);
-  
+ 
   
   pitch_cv();
   adsr();
