@@ -78,6 +78,15 @@ unsigned int pitch_bend_cv = 0;
 unsigned int pitch_bend_max = 8192;
 unsigned int pitch_bend_notes = 12;
 
+
+enum adsr_states {
+  Attack,
+  Decay,
+  Sustain,
+  Release
+};
+adsr_states adsr_state = Release;
+
 unsigned int lfo1_type = 0; //
 unsigned long lfo1_period_msec = 1000;
 unsigned long lfo1_period_msec_new = 1000;
@@ -377,81 +386,96 @@ unsigned int lfo_wavetable(unsigned long period, unsigned long current_time, uns
 }
 
 
+int next_index(int wave_table_index, int wave_table_resolution){
+  int wave_table_index_next = 0;
+
+  if (wave_table_index >= (wave_table_resolution - 1)){ 
+     wave_table_index_next = wave_table_resolution - 1; 
+  }
+  else wave_table_index_next = wave_table_index + 1;
+  return wave_table_index_next;
+}
+
+//TODO: refactor common parts of functions
+// remove glitches
+// do so that you change only the next phase params via midi
+unsigned int adsr_attack(unsigned long attack_time, unsigned long current_time, unsigned long trig_time, bool trig_state, unsigned int wave_table[][wave_table_resolution], int wave_table_type ) {
+  float wave_table_index_float = (float)(wave_table_resolution * (current_time - trig_time)) / attack_time;
+  int wave_table_index = (int)wave_table_index_float;
+  int wave_table_index_next = next_index(wave_table_index, wave_table_resolution);
+
+  unsigned int interpolated_value = wave_table[wave_table_type][wave_table_index] + ((wave_table_index_float - wave_table_index) * ((int)wave_table[wave_table_type][wave_table_index_next] - (int)wave_table[wave_table_type][wave_table_index]));  
+  return interpolated_value;
+}
+
+unsigned int  adsr_decay(unsigned long decay_time, unsigned long current_time, unsigned long trig_time, bool trig_state, unsigned long attack_time, unsigned long sustain_value, unsigned int wave_table[][wave_table_resolution], int wave_table_type) {
+  float wave_table_index_float = (float)(wave_table_resolution * (current_time - (trig_time + attack_time))) / decay_time;
+  int wave_table_index = (int)wave_table_index_float;
+  int wave_table_index_next = next_index(wave_table_index, wave_table_resolution);
+
+  unsigned int interpolated_value = wave_table[wave_table_type][wave_table_index] + ((wave_table_index_float - wave_table_index) * ((int)wave_table[wave_table_type][wave_table_index_next] - (int)wave_table[wave_table_type][wave_table_index]));  
+
+  return sustain_value + ((interpolated_value * (dac_max - sustain_value)) / dac_max);
+}
 
 
 //NOTE: side effects on env1_value
-unsigned long adsr_attack(unsigned long attack_time, unsigned long current_time, unsigned long trig_time, bool trig_state, unsigned long half_attack_value) {
-  // attack section
-  // first_half
-  if ((attack_time / 2) != 0) {
-    if (((current_time - trig_time) <= attack_time / 2) && trig_state ) {
-      env1_value =  (env1_min + (current_time - trig_time) * ((half_attack_value) - env1_min) / (attack_time / 2) );
-    }
-    // second_half
-    else if (((current_time - trig_time) <= attack_time) && trig_state ) {
-      env1_value =  (half_attack_value + (current_time - (trig_time + attack_time / 2)) * (dac_max - half_attack_value) / (attack_time / 2) );
-    }
-  }
-
+unsigned int  adsr_sustain(unsigned long sustain_value, unsigned long current_time, unsigned long trig_time, bool trig_state, unsigned long attack_time, unsigned long decay_time) {
+    return sustain_value  ;
 }
 
-//NOTE: side effects on env1_value
-void adsr_decay(unsigned long decay_time, unsigned long current_time, unsigned long trig_time, bool trig_state, unsigned long half_decay_value, unsigned long attack_time, unsigned long sustain_value) {
 
-  if ((decay_time / 2) != 0) {
-    // decay section
-    //first half
-    if  (((current_time - trig_time)  > attack_time ) && ((current_time - trig_time) <= (attack_time + decay_time / 2) ) && trig_state)   {
-      env1_value = dac_max - (((current_time - (trig_time + attack_time)) * (dac_max - half_decay_value)) / (decay_time / 2))   ;
-    }
-    //second half
-    else if  (((current_time - trig_time)  > attack_time ) && ((current_time - trig_time) <= (attack_time + decay_time) ) && trig_state)   {
-      env1_value = half_decay_value - (((current_time - (trig_time + attack_time + decay_time / 2 )) * (half_decay_value - sustain_value)) / (decay_time / 2))   ;
-    }
+unsigned int adsr_release(unsigned long release_time, unsigned long current_time, unsigned long untrig_time, unsigned long note_off_value, unsigned int wave_table[][wave_table_resolution], int wave_table_type ) {
+  if ((current_time - untrig_time) <= (release_time)) {
+    float wave_table_index_float = (float)(wave_table_resolution * (current_time - untrig_time)) / release_time;
+    int wave_table_index = (int)wave_table_index_float;
+  int wave_table_index_next = next_index(wave_table_index, wave_table_resolution);
+
+
+    unsigned int interpolated_value = wave_table[wave_table_type][wave_table_index] + ((wave_table_index_float - wave_table_index) * ((int)wave_table[wave_table_type][wave_table_index_next] - (int)wave_table[wave_table_type][wave_table_index]));  
+    return (interpolated_value * note_off_value) / dac_max ;
   }
+  else 
+    return wave_table[wave_table_type][wave_table_resolution];
 }
 
-//NOTE: side effects on env1_value
-void adsr_sustain(unsigned long sustain_value, unsigned long current_time, unsigned long trig_time, bool trig_state, unsigned long attack_time, unsigned long decay_time) {
 
-  if (((current_time - trig_time) > (attack_time + decay_time) ) && trig_state )  { // sustain section
-    env1_value =  sustain_value  ;
-  }
-}
-
-//NOTE: side effects on env1_value
-void adsr_release(unsigned long release_time, unsigned long current_time, unsigned long untrig_time, unsigned long half_release_value, unsigned long note_off_value ) {
-
-  if ((release_time / 2) == 0) {
-    env1_value = 0;
-  }
-  else {
-    // Release section
-    // trick to make it fake exponential... divide the release time by 2, start with a steeper slope
-    if ((current_time - untrig_time) <= (release_time / 2)) {
-      env1_value = note_off_value - ((current_time - untrig_time) * (note_off_value - half_release_value)) / (release_time / 2)  ;
-    }
-    else if ((current_time - untrig_time) <= release_time) { // Release section
-      env1_value = half_release_value - ((current_time - untrig_time - release_time / 2) * (half_release_value - env1_min)) / (release_time / 2) ;
-    }
-    else { // note off
-      env1_value = 0;
-      //digitalWrite(PIN_GATE, HIGH);
-    }
-  }
-}
-
+// TODO: remove side effects
 void adsr() {
 
-  // ADSR
   if (!note_stack.isEmpty()) {
-    // watch out these functions have side effects right now, they modify env1_value, to be fixed
-    adsr_attack( env1_attack_msec,   now_msec, env_trig_time_msec, env_trig, env_at_half_attack );
-    adsr_decay( env1_decay_msec,     now_msec, env_trig_time_msec, env_trig, env_at_half_decay, env1_attack_msec, env1_sustain );
-    adsr_sustain( env1_sustain,      now_msec, env_trig_time_msec, env_trig, env1_attack_msec,  env1_decay_msec);
+    
+    unsigned long env_trig_time_diff_msec = now_msec - env_trig_time_msec;
+
+    // modify the state according to current time
+    if (( env_trig_time_diff_msec <= env1_attack_msec) && env_trig){
+      adsr_state = Attack;
+    }
+    else if (( env_trig_time_diff_msec  > env1_attack_msec ) && ( env_trig_time_diff_msec <= (env1_attack_msec + env1_decay_msec) ) && env_trig)   {
+      adsr_state = Decay;
+    }
+    else if ((env_trig_time_diff_msec > (env1_attack_msec + env1_decay_msec)) && env_trig ) {
+       adsr_state = Sustain;
+    }    
   }
   else {
-    adsr_release(env1_release_msec, now_msec, note_off_time_msec, env_at_half_release , env_at_note_off);
+    adsr_state = Release;
+  }
+
+  // compute envelope
+  switch(adsr_state) {
+    case Attack: 
+      env1_value = adsr_attack( env1_attack_msec,   now_msec, env_trig_time_msec, env_trig, wave_table, 6 );
+      break;
+    case Decay: 
+      env1_value = adsr_decay( env1_decay_msec,     now_msec, env_trig_time_msec, env_trig, env1_attack_msec, env1_sustain, wave_table, 5 );
+      break;
+    case Sustain: 
+      env1_value = adsr_sustain( env1_sustain,      now_msec, env_trig_time_msec, env_trig, env1_attack_msec,  env1_decay_msec); 
+      break;
+    case Release: 
+      env1_value = adsr_release(env1_release_msec, now_msec, note_off_time_msec , env_at_note_off, wave_table, 5); //////////////// change hardcoded exponential type on wavetable
+      break;
   }
 }
 
