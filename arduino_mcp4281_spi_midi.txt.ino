@@ -29,6 +29,7 @@
 const int PIN_GATE = 45;
 const int PIN_CS_PITCH = 44;
 const int PIN_CS_FILTER = 46;
+const int PIN_CS_VOLUME = 42;
 const int GAIN_1 = 0x1;
 const int GAIN_2 = 0x0;
 MIDI_CREATE_INSTANCE(HardwareSerial, Serial1, midiA);
@@ -175,6 +176,7 @@ where 100 is the max A1 value
   midiA.setHandlePitchBend(handlePitchBend);
   pinMode(PIN_CS_PITCH, OUTPUT);
   pinMode(PIN_CS_FILTER, OUTPUT);
+  pinMode(PIN_CS_VOLUME, OUTPUT);
   SPI.begin();
   SPI.setBitOrder(MSBFIRST);
   SPI.setClockDivider(SPI_CLOCK_DIV2);
@@ -356,6 +358,20 @@ void setOutput_filter(unsigned int val)
   SPI.transfer(lowByte);
   PORTB |= 0x4;
   digitalWrite(PIN_CS_FILTER, HIGH);
+}
+
+
+void setOutput_volume(unsigned int val)
+{
+
+  byte lowByte = val & 0xff;
+  byte highByte = ((val >> 8) & 0xff) | 0x10;
+  digitalWrite(PIN_CS_VOLUME, LOW);
+  PORTB &= 0xfb;
+  SPI.transfer(highByte);
+  SPI.transfer(lowByte);
+  PORTB |= 0x4;
+  digitalWrite(PIN_CS_VOLUME, HIGH);
 }
 
 void setOutput(byte channel, byte gain, byte shutdown, unsigned int val)
@@ -544,7 +560,7 @@ void loop() {
   //Serial.println(curr_filter);
   setOutput(curr_pitch);
   setOutput_filter((unsigned int)curr_filter);
-
+  setOutput_volume(curr_pitch);
 }
 
 
