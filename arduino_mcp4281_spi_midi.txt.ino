@@ -49,6 +49,7 @@ unsigned int last_pitch = 0;
 unsigned int curr_pitch = 0;
 unsigned int velocity = 0;
 unsigned int velocity_scaling = 90; // 0-100
+unsigned int velocity_max = 126;
 
 unsigned long now_usec = 0;
 //unsigned long now_sec = 0;
@@ -198,7 +199,8 @@ void handleNoteOn(byte inChannel, byte inNote, byte inVelocity)
   unsigned int in_pitch = dac_max / notes_max * (inNote - notes_lowest) ;
   note_stack.push( in_pitch );
   note_on = true;
-
+  //velocity = ((unsigned int)inVelocity*dac_max)/velocity_max;
+   velocity =  (((long)4096*((long)inVelocity))/126);  
 }
 
 void handleNoteOff(byte inChannel, byte inNote, byte inVelocity)
@@ -560,7 +562,8 @@ void loop() {
   //Serial.println(curr_filter);
   setOutput(curr_pitch);
   setOutput_filter((unsigned int)curr_filter);
-  setOutput_volume(curr_pitch);
+  setOutput_volume((unsigned int)velocity);
+  Serial.println(velocity);
 }
 
 
