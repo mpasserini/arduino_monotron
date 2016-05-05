@@ -31,5 +31,9 @@ Todo:
 * add a proper modulation matrix with several lfos and env going to different destinations
 * random lfo
 * make lfo affect + and - the wave and not only +
-
-
+* save settings to EPROM and recall
+* fix sound glitches, in some ENV settings
+* build a proper case
+* add a simple sequencer
+* add a simple arpeggiator
+* add an output buffer opamp
