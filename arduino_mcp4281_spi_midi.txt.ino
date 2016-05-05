@@ -74,9 +74,10 @@ unsigned long env2_sustain = 0;
 unsigned long env2_release_msec = 0;
 
 unsigned int env1_at_note_off = 0;
-
+unsigned int env2_at_note_off = 0;
 const unsigned int env1_min = 0;
 unsigned long env1_value = 0;
+unsigned long env2_value = 0;
 bool env_trig = false;
 unsigned long curr_filter = 0;
 unsigned int bent_pitch = 0;
@@ -91,7 +92,8 @@ enum adsr_states {
   Sustain,
   Release
 };
-adsr_states adsr_state = Release;
+adsr_states adsr1_state = Release;
+adsr_states adsr2_state = Release;
 
 unsigned int lfo1_type = 0; //
 unsigned long lfo1_period_msec = 1000;
@@ -237,6 +239,7 @@ void handleNoteOff(byte inChannel, byte inNote, byte inVelocity)
   if (note_stack.isEmpty()) {
     note_off_time_msec = now_msec;
     env1_at_note_off = env1_value;
+    env2_at_note_off = env2_value;
     first_note = true;
     note_on = false;
   }
@@ -569,10 +572,13 @@ unsigned int adsr_release( unsigned long release_time,
 unsigned long adsr( bool note_stack_is_empty, 
                     unsigned long now_msec, 
                     unsigned long env_trig_time_msec, 
-                    unsigned long env1_attack_msec, 
+                    unsigned long env_attack_msec, 
                     bool env_trig, 
                     adsr_states adsr_state, 
-                    unsigned long env1_decay_msec
+                    unsigned long env_sustain,
+                    unsigned long env_decay_msec,
+                    unsigned long env_release_msec,
+                    unsigned int env_at_note_off
                    ) {
   unsigned long env_value=0;
   
@@ -581,16 +587,16 @@ unsigned long adsr( bool note_stack_is_empty,
     unsigned long env_trig_time_diff_msec = now_msec - env_trig_time_msec;
 
     // modify the state according to current time
-    if (( env_trig_time_diff_msec <= env1_attack_msec) && env_trig){
-      adsr_state = Attack;
+    if (( env_trig_time_diff_msec <= env_attack_msec) && env_trig){
+      adsr_state = Attack; // SIDE EFFECTS? CHECK
     }
-    else if ((env_trig_time_diff_msec  > env1_attack_msec) && 
-             (env_trig_time_diff_msec <= (env1_attack_msec + env1_decay_msec)) &&
+    else if ((env_trig_time_diff_msec  > env_attack_msec) && 
+             (env_trig_time_diff_msec <= (env_attack_msec + env_decay_msec)) &&
               env_trig) {
       adsr_state = Decay;
     }
     else if ((env_trig_time_diff_msec > 
-              (env1_attack_msec + env1_decay_msec)) && env_trig ) {
+              (env_attack_msec + env_decay_msec)) && env_trig ) {
        adsr_state = Sustain;
     }    
   }
@@ -601,7 +607,7 @@ unsigned long adsr( bool note_stack_is_empty,
   // compute envelope
   switch(adsr_state) {
     case Attack: 
-      env_value = adsr_attack( env1_attack_msec, 
+      env_value = adsr_attack( env_attack_msec, 
                                now_msec, 
                                env_trig_time_msec, 
                                env_trig, 
@@ -609,28 +615,28 @@ unsigned long adsr( bool note_stack_is_empty,
                                6 );
       break;
     case Decay: 
-      env_value = adsr_decay( env1_decay_msec,     
+      env_value = adsr_decay( env_decay_msec,     
                               now_msec, 
                               env_trig_time_msec, 
                               env_trig, 
-                              env1_attack_msec, 
-                              env1_sustain, 
+                              env_attack_msec, 
+                              env_sustain, 
                               wave_table, 
                               5 );
       break;
     case Sustain: 
-      env_value = adsr_sustain( env1_sustain,
+      env_value = adsr_sustain( env_sustain,
                                 now_msec, 
                                 env_trig_time_msec, 
                                 env_trig, 
-                                env1_attack_msec,  
-                                env1_decay_msec); 
+                                env_attack_msec,  
+                                env_decay_msec); 
       break;
     case Release: 
-      env_value = adsr_release( env1_release_msec, 
+      env_value = adsr_release( env_release_msec, 
                                 now_msec, 
                                 note_off_time_msec , 
-                                env1_at_note_off, 
+                                env_at_note_off, 
                                 wave_table, 
                                 5); //TODO change hardcoded exponential 
                                     //type on wavetable
@@ -772,13 +778,29 @@ void loop() {
                     env_trig_time_msec, 
                     env1_attack_msec, 
                     env_trig, 
-                    adsr_state, 
-                    env1_decay_msec);
+                    adsr1_state, 
+                    env1_sustain,
+                    env1_decay_msec,
+                    env1_release_msec,
+                    env1_at_note_off);
+
+
+  env2_value = adsr(note_stack_is_empty, 
+                    now_msec, 
+                    env_trig_time_msec, 
+                    env2_attack_msec, 
+                    env_trig, 
+                    adsr2_state, 
+                    env2_sustain,
+                    env2_decay_msec,
+                    env2_release_msec,
+                    env2_at_note_off);
+                    
   
   curr_filter = (env1_value * vcf_env_amt) /  dac_max + vcf + 
                 ((lfo1_value * lfo1_amount) / lfo1_amount_max) ;
 
-  velocity = (env1_value * vcf_env_amt) /  dac_max + vcf + 
+  velocity = (env2_value * vcf_env_amt) /  dac_max + vcf + 
                 ((lfo1_value * lfo1_amount) / lfo1_amount_max) ;
 
   //Serial.println(velocity);              
