@@ -220,6 +220,7 @@ void handleNoteOn(byte inChannel, byte inNote, byte inVelocity)
   }
   unsigned int in_pitch = dac_max / notes_max * (inNote - notes_lowest) ;
   note_stack.push( in_pitch );
+  
   note_on = true;
   //velocity = ((unsigned int)inVelocity*dac_max)/velocity_max;
    velocity =  (((long)4096*((long)inVelocity))/126);  
@@ -565,7 +566,7 @@ unsigned int adsr_release( unsigned long release_time,
 
 
 // this function returns the adsr value at a given time
-unsigned long adsr( StackArray <unsigned int> note_stack, 
+unsigned long adsr( bool note_stack_is_empty, 
                     unsigned long now_msec, 
                     unsigned long env_trig_time_msec, 
                     unsigned long env1_attack_msec, 
@@ -575,7 +576,7 @@ unsigned long adsr( StackArray <unsigned int> note_stack,
                    ) {
   unsigned long env_value=0;
   
-  if (!note_stack.isEmpty()) {
+  if (!note_stack_is_empty) {
     
     unsigned long env_trig_time_diff_msec = now_msec - env_trig_time_msec;
 
@@ -641,51 +642,77 @@ unsigned long adsr( StackArray <unsigned int> note_stack,
 
 // this function calculates the pitch CV
 unsigned int pitch_cv(
-    StackArray <unsigned int> note_stack,
+    //StackArray <unsigned int> note_stack,
+    bool note_stack_is_empty,
+    unsigned int note_stack_peek,
+    unsigned int note_stack_count,
     unsigned long now_msec,
     unsigned long note_change_time_msec,
     unsigned long slide_time_msec,
     bool legato,
     bool first_note,
-    //unsigned int curr_pitch,
     unsigned int pitch_bend_cv,
     bool portamento,
     unsigned int last_pitch,
-    unsigned int dac_max    
+    unsigned int dac_max,    
+    unsigned int curr_pitch
   ) {
-  unsigned int curr_pitch;
-  if (!note_stack.isEmpty()) {
+  unsigned int result_pitch = curr_pitch;
+
+
+  
+  if (!note_stack_is_empty) {
     if ((now_msec > (note_change_time_msec + slide_time_msec ))  || 
        ((legato) && (first_note )) || (slide_time_msec == 0) ) { 
       // normal pitch section
       //TODO: change from peek to the highest note
-      curr_pitch = note_stack.peek() + pitch_bend_cv; 
+      result_pitch = note_stack_peek + pitch_bend_cv; 
+      
+      //Serial.println(note_stack.peek() );
     }
-    else if ((portamento) || ((legato) && (note_stack.count() >= 1)) ) { 
+    else if ((portamento) || ((legato) && (note_stack_count >= 1)) ) { 
       // portamento section, or legato
-      if (note_stack.peek() > last_pitch) {
-        curr_pitch = last_pitch + ((now_msec - note_change_time_msec) * 
-                     (note_stack.peek() - last_pitch)) / slide_time_msec + 
+      if (note_stack_peek > last_pitch) {
+        result_pitch = last_pitch + ((now_msec - note_change_time_msec) * 
+                     (note_stack_peek - last_pitch)) / slide_time_msec + 
                      pitch_bend_cv ;
       }
       else {
-        curr_pitch = last_pitch - ((now_msec - note_change_time_msec) * 
-                     (last_pitch - note_stack.peek())) / slide_time_msec + 
+        result_pitch = last_pitch - ((now_msec - note_change_time_msec) * 
+                     (last_pitch - note_stack_peek)) / slide_time_msec + 
                      pitch_bend_cv ;
       }
     }
   }
 
+
+
+
+
+
+ // if (!note_stack_is_empty) {
+ //   if (now_msec > note_change_time_msec ) { 
+ //     result_pitch = note_stack_peek; 
+ //   }
+ //   }
+
+  
+
+
   // boundaries for what the dac is capable of doing
-  if (curr_pitch > dac_max) {
-    curr_pitch = dac_max;
+  if (result_pitch > dac_max) {
+    result_pitch = dac_max;
   }
-  return curr_pitch;
+
+  return result_pitch;
 
 
 }
 
 void loop() {
+
+  unsigned int note_stack_peek = 0;
+  bool note_stack_is_empty = true;
   // static
   
   midiA.read();
@@ -719,8 +746,16 @@ void loop() {
                                   lfo_retrig);
     }
   }
-   
-  curr_pitch = pitch_cv( note_stack,
+
+
+  note_stack_is_empty = note_stack.isEmpty();
+  if (!note_stack_is_empty) {
+    note_stack_peek = note_stack.peek();
+  } 
+  curr_pitch = pitch_cv( 
+                         note_stack_is_empty,
+                         note_stack_peek,
+                         note_stack.count(),
                          now_msec,
                          note_change_time_msec,
                          slide_time_msec,
@@ -729,9 +764,10 @@ void loop() {
                          pitch_bend_cv,
                          portamento,
                          last_pitch, 
-                         dac_max);
+                         dac_max, 
+                         curr_pitch);
 
-  env1_value = adsr(note_stack, 
+  env1_value = adsr(note_stack_is_empty, 
                     now_msec, 
                     env_trig_time_msec, 
                     env1_attack_msec, 
@@ -741,6 +777,12 @@ void loop() {
   
   curr_filter = (env1_value * vcf_env_amt) /  dac_max + vcf + 
                 ((lfo1_value * lfo1_amount) / lfo1_amount_max) ;
+
+  velocity = (env1_value * vcf_env_amt) /  dac_max + vcf + 
+                ((lfo1_value * lfo1_amount) / lfo1_amount_max) ;
+
+  //Serial.println(velocity);              
+  //curr_filter = dac_max;
 
   if (curr_filter > dac_max) { // clear up too big numbers
     curr_filter = dac_max;
