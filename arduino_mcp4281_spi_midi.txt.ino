@@ -97,14 +97,25 @@ enum adsr_states {
 adsr_states adsr1_state = Release;
 adsr_states adsr2_state = Release;
 
+
+unsigned int lfo_amount_max = 127;
+
 unsigned int lfo1_type = 0; //
 unsigned long lfo1_period_msec = 1000;
 unsigned long lfo1_period_msec_new = 1000;
 unsigned long lfo1_value = 0; 
 unsigned int lfo1_amount = 0;
-unsigned int lfo1_amount_max = 127;
-bool lfo_retrig = true;
+bool lfo1_retrig = true;
 unsigned long lfo1_trig_time_msec = 0;
+
+unsigned int lfo2_type = 0; //
+unsigned long lfo2_period_msec = 1000;
+unsigned long lfo2_period_msec_new = 1000;
+unsigned long lfo2_value = 0; 
+unsigned int lfo2_amount = 0;
+bool lfo2_retrig = true;
+unsigned long lfo2_trig_time_msec = 0;
+
 
 const int max_wave_types=7;
 const int  wave_table_resolution=16; //increase for more precision, 
@@ -255,6 +266,9 @@ void handlePitchBend(byte channel, int bend) {
 void handleControlChange(byte channel, byte number, byte value) {
 
   switch (number) {
+
+
+    // FIRST BUTTON ROW 
     case 65:
 
       if (value == 0) {
@@ -307,14 +321,46 @@ void handleControlChange(byte channel, byte number, byte value) {
         pitch_bend_notes = 12;
       }
       break;
-      case 71:
+    case 71:
       if (value == 0) {
-        lfo_retrig = true;
+        lfo1_retrig = true;
       }
       else {
-        lfo_retrig = false;
+        lfo1_retrig = false;
       }
       break;
+
+    // case 72
+
+    // SECOND BUTTON ROW
+
+    case 73:
+      if (value == 0) {
+        lfo2_type = 0;
+      }
+      else {
+        lfo2_type = 1;
+      }
+      break;
+    case 74:
+      if (value == 0) {
+        lfo2_type = 2;
+      }
+      else {
+        lfo2_type = 3;
+      }
+      break;
+    case 75:
+      if (value == 0) {
+        lfo2_type = 5;
+      }
+      else {
+        lfo2_type = 6;
+      }
+      break;
+
+
+    // FIRST KNOB ROW
 
     case 81:
       vcf = (float)value / 127 * dac_max;
@@ -333,7 +379,11 @@ void handleControlChange(byte channel, byte number, byte value) {
       lfo1_amount = value;
       break;
 
+    case 85:
+      lfo2_amount = value;
+      break;
 
+    // SECOND KNOB ROW
     // VCF
     case 89:
       //log scale:
@@ -359,7 +409,6 @@ void handleControlChange(byte channel, byte number, byte value) {
       break;
 
 
-
     // VCA
     case 93:
       //log scale:
@@ -381,7 +430,7 @@ void handleControlChange(byte channel, byte number, byte value) {
       break;
 
 
-      
+    // THIRD KNOB ROW      
 
     case 97:
       slide_time_msec = (unsigned long)value * 1000 / 127;
@@ -391,6 +440,13 @@ void handleControlChange(byte channel, byte number, byte value) {
       lfo1_period_msec_new = 1 + (1 / log10(129 - (unsigned long)value)) * 
                              10000 - 4738;
       break;
+
+
+    case 99:
+      lfo2_period_msec_new = 1 + (1 / log10(129 - (unsigned long)value)) * 
+                             10000 - 4738;
+      break;
+      
   }
 }
 
@@ -746,7 +802,7 @@ void loop() {
                              wave_table, 
                              lfo1_type, 
                              lfo1_trig_time_msec, 
-                             lfo_retrig);    
+                             lfo1_retrig);    
   if (lfo1_period_msec != lfo1_period_msec_new){
     if (lfo1_value >= 2048 && lfo1_value_prev <= 2048){
        lfo1_period_msec = lfo1_period_msec_new;
@@ -756,9 +812,36 @@ void loop() {
                                   wave_table, 
                                   lfo1_type, 
                                   lfo1_trig_time_msec, 
-                                  lfo_retrig);
+                                  lfo1_retrig);
     }
   }
+
+
+
+
+
+  unsigned int lfo2_value_prev = lfo2_value;
+  lfo2_value = lfo_wavetable(lfo2_period_msec, 
+                             now_msec, 
+                             wave_table, 
+                             lfo2_type, 
+                             lfo2_trig_time_msec, 
+                             lfo2_retrig);    
+  if (lfo2_period_msec != lfo2_period_msec_new){
+    if (lfo2_value >= 2048 && lfo2_value_prev <= 2048){
+       lfo2_period_msec = lfo2_period_msec_new;
+       lfo2_trig_time_msec = now_msec;
+       lfo2_value = lfo_wavetable(lfo2_period_msec, 
+                                  now_msec, 
+                                  wave_table, 
+                                  lfo2_type, 
+                                  lfo2_trig_time_msec, 
+                                  lfo2_retrig);
+    }
+  }
+
+
+  
 
 
   note_stack_is_empty = note_stack.isEmpty();
@@ -805,10 +888,10 @@ void loop() {
                     
   
   curr_filter = (env1_value * vcf_env_amt) /  dac_max + vcf + 
-                ((lfo1_value * lfo1_amount) / lfo1_amount_max) ;
+                ((lfo1_value * lfo1_amount) / lfo_amount_max) ;
 
   curr_vca = (env2_value * vca_env_amt) /  dac_max  + 
-                ((lfo1_value * lfo1_amount) / lfo1_amount_max) ; // ADD VELOCITY SENSITIVITY HERE!!!
+                ((lfo2_value * lfo2_amount) / lfo_amount_max) ; // ADD VELOCITY SENSITIVITY HERE!!!
 
   
   if (curr_filter > dac_max) { // clear up too big numbers
