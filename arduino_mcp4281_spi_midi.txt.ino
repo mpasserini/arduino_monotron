@@ -755,19 +755,6 @@ unsigned int pitch_cv(
   }
 
 
-
-
-
-
- // if (!note_stack_is_empty) {
- //   if (now_msec > note_change_time_msec ) { 
- //     result_pitch = note_stack_peek; 
- //   }
- //   }
-
-  
-
-
   // boundaries for what the dac is capable of doing
   if (result_pitch > dac_max) {
     result_pitch = dac_max;
@@ -790,12 +777,8 @@ void loop() {
  // now_sec = now_usec / 1000000;
 
 
-  // todo: 
-  // add random
-  // fix attack / lfo interaction
-  // lfo envelope?
-  // multiple lfos
-  
+
+  // TODO: the following should be made cleaner, in a function
   unsigned int lfo1_value_prev = lfo1_value;
   lfo1_value = lfo_wavetable(lfo1_period_msec, 
                              now_msec, 
@@ -815,9 +798,6 @@ void loop() {
                                   lfo1_retrig);
     }
   }
-
-
-
 
 
   unsigned int lfo2_value_prev = lfo2_value;
