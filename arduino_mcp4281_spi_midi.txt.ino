@@ -68,6 +68,7 @@ unsigned long env1_decay_msec = 0;
 unsigned long env1_sustain = 0;
 unsigned long env1_release_msec = 0;
 
+unsigned long vca_env_amt = 0;
 unsigned long env2_attack_msec = 0; //milliseconds
 unsigned long env2_decay_msec = 0;
 unsigned long env2_sustain = 0;
@@ -80,6 +81,7 @@ unsigned long env1_value = 0;
 unsigned long env2_value = 0;
 bool env_trig = false;
 unsigned long curr_filter = 0;
+unsigned long curr_vca = 0;
 unsigned int bent_pitch = 0;
 unsigned int pitch_bend_cv = 0;
 unsigned int pitch_bend_max = 8192;
@@ -316,6 +318,11 @@ void handleControlChange(byte channel, byte number, byte value) {
 
     case 81:
       vcf = (float)value / 127 * dac_max;
+      break;
+
+
+    case 82:
+      vca_env_amt = ((unsigned long)value * dac_max) / 127 ;
       break;
 
     case 83:
@@ -800,12 +807,10 @@ void loop() {
   curr_filter = (env1_value * vcf_env_amt) /  dac_max + vcf + 
                 ((lfo1_value * lfo1_amount) / lfo1_amount_max) ;
 
-  velocity = (env2_value * vcf_env_amt) /  dac_max + vcf + 
-                ((lfo1_value * lfo1_amount) / lfo1_amount_max) ;
+  curr_vca = (env2_value * vca_env_amt) /  dac_max  + 
+                ((lfo1_value * lfo1_amount) / lfo1_amount_max) ; // ADD VELOCITY SENSITIVITY HERE!!!
 
-  //Serial.println(velocity);              
-  //curr_filter = dac_max;
-
+  
   if (curr_filter > dac_max) { // clear up too big numbers
     curr_filter = dac_max;
   }
@@ -817,7 +822,7 @@ void loop() {
   //Serial.println(curr_filter);
   setOutput(curr_pitch);
   setOutput_filter((unsigned int)curr_filter);
-  setOutput_volume((unsigned int)velocity);
+  setOutput_volume((unsigned int)curr_vca);
 }
 
 
