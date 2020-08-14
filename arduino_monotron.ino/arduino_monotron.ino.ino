@@ -1,37 +1,18 @@
 #include <MIDI.h>
 #include <SPI.h>
-#include <StackArray.h>
-
+//#include <StackArray.h>
 //http://www.ripmat.it/mate/d/dc/dcee.html
 //https://www.arduino.cc/en/Tutorial/DueSimpleWaveformGenerator
-/*
-  NOTES
-  void keyword  N/A
-  boolean 1 byte
-  byte 8 bit               0 to 255
-  char  1 byte             -128 to 127
-  unsigned char 1 byte
-  int 2 byte               -32768 to 32767
-  unsigned int  2 byte     0 to 65535
-  word  2 byte  0-65535
-  long  4 byte             -2,147,483,648 to 2,147,483,647
-  unsigned long 4 byte     0 to 4,294,967,295
-  float 4 byte             -3.4028235E38 to 3.4028235E38
-  double  4 byte
-  string  1 byte + x
-  array 1 byte + x
-  enum  N/A
-  struct  N/A
-  pointer N/A
-*/
 
 
-const int PIN_GATE = 45;
-const int PIN_CS_PITCH = 44;
-const int PIN_CS_FILTER = 46;
+
+const int PIN_GATE = 23;
+const int PIN_CS_PITCH = 46;
+const int PIN_CS_FILTER = 44;
 const int PIN_CS_VOLUME = 42;
 const int GAIN_1 = 0x1;
 const int GAIN_2 = 0x0;
+
 MIDI_CREATE_INSTANCE(HardwareSerial, Serial1, midiA);
 
 const unsigned int dac_max = 4095;
@@ -41,6 +22,10 @@ const byte notes_lowest = 24;
 // min note 24
 // max note 84, 5 oct
 // max note 96, 6 oct
+
+
+int gate_state = LOW;
+int gate_prev_state = LOW;
 
 unsigned long env_trig_time_msec = 0;
 unsigned long note_change_time_msec = 0;
@@ -54,25 +39,28 @@ unsigned int velocity_max = 126;
 unsigned long now_usec = 0;
 //unsigned long now_sec = 0;
 unsigned long now_msec = 0;
+
+unsigned long prev_msec = 0;
+
 bool legato = true;
 bool first_note = true;
 bool portamento = false;
 unsigned long slide_time_msec = 100;
 bool note_on = false;
-StackArray <unsigned int> note_stack;
+//StackArray <unsigned int> note_stack;
 
 unsigned int vcf = 0;
-unsigned long vcf_env_amt = 0;
+unsigned long vcf_env_amt = 1595;
 unsigned long env1_attack_msec = 0; //milliseconds
-unsigned long env1_decay_msec = 0;
+unsigned long env1_decay_msec = 3500;
 unsigned long env1_sustain = 0;
 unsigned long env1_release_msec = 0;
 
-unsigned long vca_env_amt = 0;
+unsigned long vca_env_amt = 3000;
 unsigned long env2_attack_msec = 0; //milliseconds
-unsigned long env2_decay_msec = 0;
+unsigned long env2_decay_msec = 4000;
 unsigned long env2_sustain = 0;
-unsigned long env2_release_msec = 0;
+unsigned long env2_release_msec = 00;
 
 unsigned int env1_at_note_off = 0;
 unsigned int env2_at_note_off = 0;
@@ -130,8 +118,16 @@ const float pi = 3.14159;
 
 void setup() {
 
+  Serial.begin(9600);  
   
-  Serial.begin(9600);
+  
+  pinMode(PIN_GATE,INPUT);
+  pinMode(PIN_CS_PITCH,OUTPUT);
+  pinMode(PIN_CS_FILTER,OUTPUT);
+  pinMode(PIN_CS_VOLUME,OUTPUT);
+  SPI.begin();
+
+
 
   // Fill in Sine wavetable
   for (int i=0; i < wave_table_resolution; i++) {
@@ -202,251 +198,6 @@ where 100 is the max A1 value
                                 )
                         )
                        );
-  }
-
-  
-
-  
-  midiA.begin(MIDI_CHANNEL_OMNI);
-  midiA.setHandleNoteOn(handleNoteOn);
-  midiA.setHandleNoteOff(handleNoteOff);
-  midiA.setHandleControlChange(handleControlChange);
-  midiA.setHandlePitchBend(handlePitchBend);
-  pinMode(PIN_CS_PITCH, OUTPUT);
-  pinMode(PIN_CS_FILTER, OUTPUT);
-  pinMode(PIN_CS_VOLUME, OUTPUT);
-  SPI.begin();
-  SPI.setBitOrder(MSBFIRST);
-  SPI.setClockDivider(SPI_CLOCK_DIV2);
-  digitalWrite(PIN_GATE, HIGH); // gate is always on. it just creates noise
-}
-
-void handleNoteOn(byte inChannel, byte inNote, byte inVelocity)
-{
-  note_change_time_msec = now_msec;
-  last_pitch = curr_pitch;
-  if (note_stack.isEmpty()) {
-    env_trig = true;
-    env_trig_time_msec = now_msec ;
-    lfo1_trig_time_msec = now_msec;
-  }
-  else {
-    first_note = false;
-  }
-  unsigned int in_pitch = dac_max / notes_max * (inNote - notes_lowest) ;
-  note_stack.push( in_pitch );
-  
-  note_on = true;
-  //velocity = ((unsigned int)inVelocity*dac_max)/velocity_max;
-   velocity =  (((long)4096*((long)inVelocity))/126);  
-}
-
-void handleNoteOff(byte inChannel, byte inNote, byte inVelocity)
-{
-  note_change_time_msec = now_msec;
-  unsigned int in_pitch = dac_max / notes_max * (inNote - notes_lowest);
-  if (!note_stack.isEmpty()) {
-    last_pitch = in_pitch;
-    note_stack.pop();
-  }
-  if (note_stack.isEmpty()) {
-    note_off_time_msec = now_msec;
-    env1_at_note_off = env1_value;
-    env2_at_note_off = env2_value;
-    first_note = true;
-    note_on = false;
-  }
-}
-
-void handlePitchBend(byte channel, int bend) {
-  pitch_bend_cv =  ((long)bend * ((dac_max / notes_max) 
-                   * pitch_bend_notes) ) / pitch_bend_max;
-}
-
-void handleControlChange(byte channel, byte number, byte value) {
-
-  switch (number) {
-
-
-    // FIRST BUTTON ROW 
-    case 65:
-
-      if (value == 0) {
-        portamento = false; //TODO: portamento and legato  booleans should 
-                            //be fixed, they don't behave correctly, when 
-                            //both are 0 then there is a delay between notes
-      }
-      else {
-        portamento = true;
-      }
-      break;
-    case 66:
-      if (value == 0) {
-        legato = false;
-      }
-      else {
-        legato = true;
-      }
-      break;
-    case 67:
-      if (value == 0) {
-        lfo1_type = 0;
-      }
-      else {
-        lfo1_type = 1;
-      }
-      break;
-    case 68:
-      if (value == 0) {
-        lfo1_type = 2;
-      }
-      else {
-        lfo1_type = 3;
-      }
-      break;
-    case 69:
-      if (value == 0) {
-        lfo1_type = 5;
-      }
-      else {
-        lfo1_type = 6;
-      }
-      break;
-
-    case 70:
-      if (value == 0) {
-        pitch_bend_notes = 2;
-      }
-      else {
-        pitch_bend_notes = 12;
-      }
-      break;
-    case 71:
-      if (value == 0) {
-        lfo1_retrig = true;
-      }
-      else {
-        lfo1_retrig = false;
-      }
-      break;
-
-    // case 72
-
-    // SECOND BUTTON ROW
-
-    case 73:
-      if (value == 0) {
-        lfo2_type = 0;
-      }
-      else {
-        lfo2_type = 1;
-      }
-      break;
-    case 74:
-      if (value == 0) {
-        lfo2_type = 2;
-      }
-      else {
-        lfo2_type = 3;
-      }
-      break;
-    case 75:
-      if (value == 0) {
-        lfo2_type = 5;
-      }
-      else {
-        lfo2_type = 6;
-      }
-      break;
-
-
-    // FIRST KNOB ROW
-
-    case 81:
-      vcf = (float)value / 127 * dac_max;
-      break;
-
-
-    case 82:
-      vca_env_amt = ((unsigned long)value * dac_max) / 127 ;
-      break;
-
-    case 83:
-      vcf_env_amt = ((unsigned long)value * dac_max) / 127 ;
-      break;
-
-    case 84:
-      lfo1_amount = value;
-      break;
-
-    case 85:
-      lfo2_amount = value;
-      break;
-
-    // SECOND KNOB ROW
-    // VCF
-    case 89:
-      //log scale:
-      env1_attack_msec =  (1 / log10(129 - (unsigned long)value)) * 10000 - 4738;
-      // linear version:
-      //env1_attack_msec =  (unsigned long)value * 10000 / 127 ;
-      break;
-
-    case 90:
-      //log scale:
-      env1_decay_msec =  (1 / log10(129 - (unsigned long)value)) * 10000 - 4738;
-      // linear version:
-      //env1_decay_msec = (unsigned long)value * 10000 / 127;
-      break;
-
-    case 91:
-      env1_sustain = (unsigned long)value * dac_max / 127 ;
-      break;
-
-    case 92:
-      //log scale:
-      env1_release_msec = (1 / log10(129 - (unsigned long)value)) * 10000 - 4738;
-      break;
-
-
-    // VCA
-    case 93:
-      //log scale:
-      env2_attack_msec =  (1 / log10(129 - (unsigned long)value)) * 10000 - 4738;
-      break;
-
-    case 94:
-      //log scale:
-      env2_decay_msec =  (1 / log10(129 - (unsigned long)value)) * 10000 - 4738;
-      break;
-
-    case 95:
-      env2_sustain = (unsigned long)value * dac_max / 127 ;
-      break;
-
-    case 96:
-      //log scale:
-      env2_release_msec = (1 / log10(129 - (unsigned long)value)) * 10000 - 4738;
-      break;
-
-
-    // THIRD KNOB ROW      
-
-    case 97:
-      slide_time_msec = (unsigned long)value * 1000 / 127;
-      break;
-
-    case 98:
-      lfo1_period_msec_new = 1 + (1 / log10(129 - (unsigned long)value)) * 
-                             10000 - 4738;
-      break;
-
-
-    case 99:
-      lfo2_period_msec_new = 1 + (1 / log10(129 - (unsigned long)value)) * 
-                             10000 - 4738;
-      break;
-      
   }
 }
 
@@ -632,7 +383,7 @@ unsigned int adsr_release( unsigned long release_time,
 
 
 // this function returns the adsr value at a given time
-unsigned long adsr( bool note_stack_is_empty, 
+unsigned long adsr( bool gate_state, 
                     unsigned long now_msec, 
                     unsigned long env_trig_time_msec, 
                     unsigned long env_attack_msec, 
@@ -644,8 +395,10 @@ unsigned long adsr( bool note_stack_is_empty,
                     unsigned int env_at_note_off
                    ) {
   unsigned long env_value=0;
+
   
-  if (!note_stack_is_empty) {
+  
+  if (gate_state == HIGH) {
     
     unsigned long env_trig_time_diff_msec = now_msec - env_trig_time_msec;
 
@@ -705,79 +458,47 @@ unsigned long adsr( bool note_stack_is_empty,
                                     //type on wavetable
       break;
   }
+ 
   return env_value;
 }
 
 
-// this function calculates the pitch CV
-unsigned int pitch_cv(
-    //StackArray <unsigned int> note_stack,
-    bool note_stack_is_empty,
-    unsigned int note_stack_peek,
-    unsigned int note_stack_count,
-    unsigned long now_msec,
-    unsigned long note_change_time_msec,
-    unsigned long slide_time_msec,
-    bool legato,
-    bool first_note,
-    unsigned int pitch_bend_cv,
-    bool portamento,
-    unsigned int last_pitch,
-    unsigned int dac_max,    
-    unsigned int curr_pitch
-  ) {
-  unsigned int result_pitch = curr_pitch;
-
-
-  
-  if (!note_stack_is_empty) {
-    if ((now_msec > (note_change_time_msec + slide_time_msec ))  || 
-       ((legato) && (first_note )) || (slide_time_msec == 0) ) { 
-      // normal pitch section
-      //TODO: change from peek to the highest note
-      result_pitch = note_stack_peek + pitch_bend_cv; 
-      
-      //Serial.println(note_stack.peek() );
-    }
-    else if ((portamento) || ((legato) && (note_stack_count >= 1)) ) { 
-      // portamento section, or legato
-      if (note_stack_peek > last_pitch) {
-        result_pitch = last_pitch + ((now_msec - note_change_time_msec) * 
-                     (note_stack_peek - last_pitch)) / slide_time_msec + 
-                     pitch_bend_cv ;
-      }
-      else {
-        result_pitch = last_pitch - ((now_msec - note_change_time_msec) * 
-                     (last_pitch - note_stack_peek)) / slide_time_msec + 
-                     pitch_bend_cv ;
-      }
-    }
-  }
-
-
-  // boundaries for what the dac is capable of doing
-  if (result_pitch > dac_max) {
-    result_pitch = dac_max;
-  }
-
-  return result_pitch;
-
-
-}
-
 void loop() {
-
+/*
   unsigned int note_stack_peek = 0;
   bool note_stack_is_empty = true;
+*/
   // static
-  
+
+  /*
   midiA.read();
+  */
   now_usec = micros();
   now_msec = now_usec / 1000;
- // now_sec = now_usec / 1000000;
 
+  gate_state = digitalRead(PIN_GATE); 
 
-
+    
+  if ((gate_prev_state == LOW) && (gate_state == HIGH)){
+    //Serial.println("Up");
+    gate_prev_state = HIGH; 
+    env_trig=1;
+    env_trig_time_msec = now_msec ;
+    lfo1_trig_time_msec = now_msec;
+  }
+  //else if ((gate_prev_state == HIGH) && (gate_state == HIGH) && (env_trig = 1)) {
+  //  env_trig = 0;
+  //}
+  else if ((gate_prev_state == HIGH) && (gate_state == LOW)){
+    //Serial.println("Low");
+    gate_prev_state = LOW;
+    env_trig = 0;
+    note_off_time_msec = now_msec;
+    env1_at_note_off = env1_value;
+    env2_at_note_off = env2_value;
+  }
+  
+  
   // TODO: the following should be made cleaner, in a function
   unsigned int lfo1_value_prev = lfo1_value;
   lfo1_value = lfo_wavetable(lfo1_period_msec, 
@@ -821,29 +542,7 @@ void loop() {
   }
 
 
-  
-
-
-  note_stack_is_empty = note_stack.isEmpty();
-  if (!note_stack_is_empty) {
-    note_stack_peek = note_stack.peek();
-  } 
-  curr_pitch = pitch_cv( 
-                         note_stack_is_empty,
-                         note_stack_peek,
-                         note_stack.count(),
-                         now_msec,
-                         note_change_time_msec,
-                         slide_time_msec,
-                         legato,
-                         first_note,
-                         pitch_bend_cv,
-                         portamento,
-                         last_pitch, 
-                         dac_max, 
-                         curr_pitch);
-
-  env1_value = adsr(note_stack_is_empty, 
+  env1_value = adsr(gate_state, 
                     now_msec, 
                     env_trig_time_msec, 
                     env1_attack_msec, 
@@ -855,7 +554,7 @@ void loop() {
                     env1_at_note_off);
 
 
-  env2_value = adsr(note_stack_is_empty, 
+  env2_value = adsr(gate_state, 
                     now_msec, 
                     env_trig_time_msec, 
                     env2_attack_msec, 
@@ -865,7 +564,8 @@ void loop() {
                     env2_decay_msec,
                     env2_release_msec,
                     env2_at_note_off);
-                    
+
+ 
   
   curr_filter = (env1_value * vcf_env_amt) /  dac_max + vcf + 
                 ((lfo1_value * lfo1_amount) / lfo_amount_max) ;
@@ -873,19 +573,13 @@ void loop() {
   curr_vca = (env2_value * vca_env_amt) /  dac_max  + 
                 ((lfo2_value * lfo2_amount) / lfo_amount_max) ; // ADD VELOCITY SENSITIVITY HERE!!!
 
-  
   if (curr_filter > dac_max) { // clear up too big numbers
     curr_filter = dac_max;
   }
 
-  // scale based on velocity
-  //curr_filter = curr_filter * velocity;
-  //Serial.println(curr_filter);
-  //curr_filter = 300;
-  //Serial.println(curr_filter);
-  setOutput(curr_pitch);
+  setOutput(1000);
+  
   setOutput_filter((unsigned int)curr_filter);
   setOutput_volume((unsigned int)curr_vca);
+  
 }
-
-
