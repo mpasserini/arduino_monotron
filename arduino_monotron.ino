@@ -52,7 +52,6 @@ unsigned int velocity_scaling = 90; // 0-100
 unsigned int velocity_max = 126;
 
 unsigned long now_usec = 0;
-//unsigned long now_sec = 0;
 unsigned long now_msec = 0;
 bool legato = true;
 bool first_note = true;
@@ -62,24 +61,23 @@ bool note_on = false;
 StackArray <unsigned int> note_stack;
 
 unsigned int vcf = 0;
-unsigned long vcf_env_amt = 0;
-unsigned long env1_attack_msec = 0; //milliseconds
-unsigned long env1_decay_msec = 0;
-unsigned long env1_sustain = 0;
-unsigned long env1_release_msec = 0;
+unsigned long vcf_env_amt = 4095;
+unsigned long env1_attack_msec = 200; //milliseconds
+unsigned long env1_decay_msec = 400;
+unsigned long env1_sustain = 2000;
+unsigned long env1_release_msec = 400;
 
-unsigned long vca_env_amt = 0;
-unsigned long env2_attack_msec = 0; //milliseconds
-unsigned long env2_decay_msec = 0;
-unsigned long env2_sustain = 0;
-unsigned long env2_release_msec = 0;
+unsigned long vca_env_amt = 4095;
+unsigned long env2_attack_msec = 100; //milliseconds
+unsigned long env2_decay_msec = 500;
+unsigned long env2_sustain = 1000;
+unsigned long env2_release_msec = 300;
 
 unsigned int env1_at_note_off = 0;
 unsigned int env2_at_note_off = 0;
 const unsigned int env1_min = 0;
 unsigned long env1_value = 0;
 unsigned long env2_value = 0;
-bool env_trig = false;
 unsigned long curr_filter = 0;
 unsigned long curr_vca = 0;
 unsigned int bent_pitch = 0;
@@ -121,6 +119,8 @@ const int max_wave_types=7;
 const int  wave_table_resolution=16; //increase for more precision, 
                                      //maybe not needed? 
                                      //It's  already interpolated
+                                     // 16 is good?
+                                     
 unsigned int wave_table[max_wave_types][wave_table_resolution];
 
 unsigned int exp_curve = 3;
@@ -186,26 +186,29 @@ Descending EXP:
 
 where 100 is the max A1 value
 */
-  for (int i=0; i < wave_table_resolution; i++) {
+  // descending
+  // adding a 0 on the last value as a "trick" to make it scale better
+  for (int i=0; i < (wave_table_resolution-1 ); i++) {
     wave_table[5][i] = (unsigned int) (dac_max * 
-                        (exp( (double)-i / ((double)wave_table_resolution /
+                        (exp( (double)-i / ((double)(wave_table_resolution-1) /
                                             exp_curve) 
                             )
                         )
                        );
   }
-
-  for (int i=0; i < wave_table_resolution; i++) {
+  wave_table[5][wave_table_resolution-1] = (unsigned int)0;
+  
+  // ascending
+  for (int i=0; i < (wave_table_resolution-1); i++) {
+    
     wave_table[6][i] = (unsigned int) (dac_max * 
                         ( 1 - exp( (double)-i / 
-                                 ((double)wave_table_resolution/exp_curve)
+                                 ((double)(wave_table_resolution-1)/exp_curve)
                                 )
                         )
                        );
   }
-
-  
-
+  wave_table[6][wave_table_resolution-1] = (unsigned int)dac_max;
   
   midiA.begin(MIDI_CHANNEL_OMNI);
   midiA.setHandleNoteOn(handleNoteOn);
@@ -226,7 +229,6 @@ void handleNoteOn(byte inChannel, byte inNote, byte inVelocity)
   note_change_time_msec = now_msec;
   last_pitch = curr_pitch;
   if (note_stack.isEmpty()) {
-    env_trig = true;
     env_trig_time_msec = now_msec ;
     lfo1_trig_time_msec = now_msec;
   }
@@ -530,6 +532,7 @@ unsigned int lfo_wavetable(unsigned long period,
 }
 
 
+// return next index or stop at max to avoid overflow
 int next_index(int wave_table_index, int wave_table_resolution){
   int wave_table_index_next = 0;
 
@@ -540,63 +543,118 @@ int next_index(int wave_table_index, int wave_table_resolution){
   return wave_table_index_next;
 }
 
-//TODO: refactor common parts of functions
+
+
+  // line by two points
+  // x  - x1   y  - y1
+  // ------- = ------
+  // x2 - x1   y2 - y1
+  //
+  // index_float - index   y    - val1
+  // ------------------- = -----------
+  // index_next  - index   val2 - val1
+  //
+  // y = val1 + (index_float - index) + (val2 - val1)
+  //            -------------------------------------
+  //             index_next - index 
+unsigned int line_by_two_points(float x, int x1, int x2 ,int y1, int y2){
+  if ((x2 - x1) == 0) {
+    return y2;
+  }
+  return y1 + ((x - x1) * (y2 - y1)) / (x2 - x1) ;
+}
+
+
+// index : resolution-1 = (curr-trigtime) : attack_time 
+// => index = (resolution-1 * (curr-trigtime)) / attack_time
+float get_wave_table_index_float(const int wave_table_resolution,
+                                 unsigned long time_pos,
+                                 unsigned long time_len
+                                ) {
+  return (float)((wave_table_resolution-1) * time_pos) / time_len;
+}
+
+
 // remove glitches
 // do so that you change only the next phase params via midi
 unsigned int adsr_attack(unsigned long attack_time, 
                          unsigned long current_time, 
                          unsigned long trig_time, 
-                         bool trig_state, 
                          unsigned int wave_table[][wave_table_resolution], 
                          int wave_table_type ) {
-  float wave_table_index_float = (float)(wave_table_resolution * 
-                                 (current_time - trig_time)) / attack_time;
+  if (attack_time < 0 or attack_time > dac_max){
+    Serial.println("adsr_attack input out of range");
+  }
+  if (current_time < trig_time){
+    Serial.println("adsr_attack current_time too small");
+  }  
+                          
+  // avoid division by 0
+  if (attack_time == 0){
+      return 0;
+  }
+
+  float wave_table_index_float = get_wave_table_index_float(wave_table_resolution,
+                                                            (current_time - trig_time),
+                                                            attack_time); 
+                                                             
   int wave_table_index = (int)wave_table_index_float;
+  
   int wave_table_index_next = next_index(wave_table_index, 
                                          wave_table_resolution);
-
-  unsigned int interpolated_value = 
-                      wave_table[wave_table_type][wave_table_index] + 
-                      ((wave_table_index_float - wave_table_index) * 
-                      ((int)wave_table[wave_table_type][wave_table_index_next] -
-                      (int)wave_table[wave_table_type][wave_table_index]));  
+                                         
+  unsigned int interpolated_value = line_by_two_points(wave_table_index_float, 
+                                            wave_table_index, 
+                                            wave_table_index_next,
+                                            (int)wave_table[wave_table_type][wave_table_index], 
+                                            (int)wave_table[wave_table_type][wave_table_index_next]);
   return interpolated_value;
 }
 
 unsigned int  adsr_decay( unsigned long decay_time, 
                           unsigned long current_time, 
                           unsigned long trig_time, 
-                          bool trig_state, 
                           unsigned long attack_time, 
                           unsigned long sustain_value,  
                           unsigned int wave_table[][wave_table_resolution], 
                           int wave_table_type
                         ) {
-  float wave_table_index_float = (float)(wave_table_resolution * 
-                                 (current_time - (trig_time + attack_time))) / 
-                                 decay_time;
+  if (decay_time < 0 or decay_time > dac_max){
+    Serial.println("adsr_decay input out of range");
+  }
+  if (current_time < (trig_time + attack_time)){
+    Serial.println("adsr_decay current_time too small");
+  }
+                          
+  // avoid division by 0
+  if (decay_time == 0){
+    return sustain_value;
+  }
+
+  float wave_table_index_float = get_wave_table_index_float(wave_table_resolution,
+                                                            (current_time - (trig_time+attack_time)),
+                                                            decay_time);
+
   int wave_table_index = (int)wave_table_index_float;
   int wave_table_index_next = next_index(wave_table_index, 
                                          wave_table_resolution);
 
-  unsigned int interpolated_value = 
-                    wave_table[wave_table_type][wave_table_index] + 
-                    ((wave_table_index_float - wave_table_index) * 
-                    ((int)wave_table[wave_table_type][wave_table_index_next] - 
-                    (int)wave_table[wave_table_type][wave_table_index]));  
+  unsigned int interpolated_value = line_by_two_points(wave_table_index_float, 
+                                            wave_table_index, 
+                                            wave_table_index_next,
+                                            (int)wave_table[wave_table_type][wave_table_index], 
+                                            (int)wave_table[wave_table_type][wave_table_index_next]);
 
   return sustain_value + ((interpolated_value * 
                             (dac_max - sustain_value)) / dac_max);
 }
 
 
-unsigned int  adsr_sustain( unsigned long sustain_value, 
-                            unsigned long current_time, 
-                            unsigned long trig_time, 
-                            bool trig_state, 
-                            unsigned long attack_time, 
-                            unsigned long decay_time
+unsigned int  adsr_sustain( unsigned long sustain_value
                           ){
+    if (sustain_value < 0 or sustain_value > dac_max){
+      Serial.println("adsr_sustain input out of range");
+    }
     return sustain_value  ;
 }
 
@@ -608,26 +666,33 @@ unsigned int adsr_release( unsigned long release_time,
                            unsigned int wave_table[][wave_table_resolution], 
                            int wave_table_type 
                          ){
+  if ((release_time < 0 or release_time > dac_max) and 
+      (current_time <  untrig_time)){
+      Serial.println("adsr_release wrong input");
+  }
+  if (release_time == 0) {
+    return 0;
+  }
   if ((current_time - untrig_time) <= (release_time)) {
-    float wave_table_index_float = (float)(wave_table_resolution * 
-                                   (current_time - untrig_time)) 
-                                   / release_time;
+
+
+    float wave_table_index_float = get_wave_table_index_float(wave_table_resolution,
+                                                            (current_time - untrig_time),
+                                                            release_time);
+    
     int wave_table_index = (int)wave_table_index_float;
-  int wave_table_index_next = next_index(wave_table_index, 
+    int wave_table_index_next = next_index(wave_table_index, 
                                          wave_table_resolution);
 
-    unsigned int interpolated_value = 
-                   wave_table[wave_table_type][wave_table_index] + 
-                   ( (wave_table_index_float - wave_table_index) * 
-                     (
-                       (int)wave_table[wave_table_type][wave_table_index_next] - 
-                       (int)wave_table[wave_table_type][wave_table_index]
-                     )
-                   );  
+    unsigned int interpolated_value = line_by_two_points(wave_table_index_float, 
+                                            wave_table_index, 
+                                            wave_table_index_next,
+                                            (int)wave_table[wave_table_type][wave_table_index], 
+                                            (int)wave_table[wave_table_type][wave_table_index_next]);
+  
     return (interpolated_value * note_off_value) / dac_max ;
   }
-  else 
-    return wave_table[wave_table_type][wave_table_resolution];
+  else return wave_table[wave_table_type][wave_table_resolution-1];
 }
 
 
@@ -636,12 +701,13 @@ unsigned long adsr( bool note_stack_is_empty,
                     unsigned long now_msec, 
                     unsigned long env_trig_time_msec, 
                     unsigned long env_attack_msec, 
-                    bool env_trig, 
+                    bool note_on,
                     adsr_states adsr_state, 
                     unsigned long env_sustain,
                     unsigned long env_decay_msec,
                     unsigned long env_release_msec,
                     unsigned int env_at_note_off
+                    //unsigned long env_value
                    ) {
   unsigned long env_value=0;
   
@@ -650,16 +716,16 @@ unsigned long adsr( bool note_stack_is_empty,
     unsigned long env_trig_time_diff_msec = now_msec - env_trig_time_msec;
 
     // modify the state according to current time
-    if (( env_trig_time_diff_msec <= env_attack_msec) && env_trig){
+    if (( env_trig_time_diff_msec <= env_attack_msec) && note_on){
       adsr_state = Attack; // SIDE EFFECTS? CHECK
     }
     else if ((env_trig_time_diff_msec  > env_attack_msec) && 
              (env_trig_time_diff_msec <= (env_attack_msec + env_decay_msec)) &&
-              env_trig) {
+              note_on) {
       adsr_state = Decay;
     }
     else if ((env_trig_time_diff_msec > 
-              (env_attack_msec + env_decay_msec)) && env_trig ) {
+              (env_attack_msec + env_decay_msec)) && note_on ) {
        adsr_state = Sustain;
     }    
   }
@@ -673,27 +739,23 @@ unsigned long adsr( bool note_stack_is_empty,
       env_value = adsr_attack( env_attack_msec, 
                                now_msec, 
                                env_trig_time_msec, 
-                               env_trig, 
                                wave_table, 
                                6 );
+      
       break;
     case Decay: 
+      
       env_value = adsr_decay( env_decay_msec,     
                               now_msec, 
                               env_trig_time_msec, 
-                              env_trig, 
                               env_attack_msec, 
                               env_sustain, 
                               wave_table, 
                               5 );
       break;
     case Sustain: 
-      env_value = adsr_sustain( env_sustain,
-                                now_msec, 
-                                env_trig_time_msec, 
-                                env_trig, 
-                                env_attack_msec,  
-                                env_decay_msec); 
+      env_value = adsr_sustain( env_sustain); 
+      //Serial.println(2);
       break;
     case Release: 
       env_value = adsr_release( env_release_msec, 
@@ -705,6 +767,7 @@ unsigned long adsr( bool note_stack_is_empty,
                                     //type on wavetable
       break;
   }
+
   return env_value;
 }
 
@@ -847,7 +910,7 @@ void loop() {
                     now_msec, 
                     env_trig_time_msec, 
                     env1_attack_msec, 
-                    env_trig, 
+                    note_on,
                     adsr1_state, 
                     env1_sustain,
                     env1_decay_msec,
@@ -859,13 +922,14 @@ void loop() {
                     now_msec, 
                     env_trig_time_msec, 
                     env2_attack_msec, 
-                    env_trig, 
+                    note_on,
                     adsr2_state, 
                     env2_sustain,
                     env2_decay_msec,
                     env2_release_msec,
                     env2_at_note_off);
                     
+  env2_value = 0; // bring this back!
   
   curr_filter = (env1_value * vcf_env_amt) /  dac_max + vcf + 
                 ((lfo1_value * lfo1_amount) / lfo_amount_max) ;
@@ -883,9 +947,12 @@ void loop() {
   //Serial.println(curr_filter);
   //curr_filter = 300;
   //Serial.println(curr_filter);
+
+  
   setOutput(curr_pitch);
   setOutput_filter((unsigned int)curr_filter);
   setOutput_volume((unsigned int)curr_vca);
+
+  
+
 }
-
-
