@@ -30,6 +30,27 @@ const int PIN_GATE = 45;
 const int PIN_CS_PITCH = 44;
 const int PIN_CS_FILTER = 46;
 const int PIN_CS_VOLUME = 42;
+
+// digital input
+const int ENV_TRIG_MODE_PIN = 23;
+const int LEGATO_PORTAMENTO_PIN = 22;
+const int VELOCITY_PIN = 23;
+const int ADSR_SELECTOR_PIN = 24;
+const int LFO_SELECTOR_PIN = 25;
+
+// analog input
+const int LFO_DELAY_PIN = 0;
+const int PORTAMENTO_TIME_PIN = 1;
+const int ATTACK_PIN = 2;
+const int DECAY_PIN = 3;
+const int SUSTAIN_PIN = 4;
+const int RELEASE_PIN = 5;
+const int ENV_AMT_PIN = 6;
+const int ATTACK_TIME_PIN = 7;
+const int LFO_AMT_PIN =8;
+const int LFO_RATE_PIN =9;
+const int LFO_WAVEFORM = 10;
+
 const int GAIN_1 = 0x1;
 const int GAIN_2 = 0x0;
 MIDI_CREATE_INSTANCE(HardwareSerial, Serial1, midiA);
@@ -48,26 +69,34 @@ unsigned long note_off_time_msec = 0;
 unsigned int last_pitch = 0;
 unsigned int curr_pitch = 0;
 unsigned int velocity = 0;
-unsigned int velocity_scaling = 90; // 0-100
+bool velocity_on_off = False; 
 unsigned int velocity_max = 126;
 
 unsigned long now_usec = 0;
 unsigned long now_msec = 0;
-bool legato = true;
+
 bool first_note = true;
-bool portamento = false;
+// True = legato, False = portamento
+bool legato_or_portamento = true;
 unsigned long slide_time_msec = 100;
 bool note_on = false;
 StackArray <unsigned int> note_stack;
 
 unsigned int vcf = 0;
 unsigned long vcf_env_amt = 4095;
+unsigned long vca_env_amt = 4095;
+
+unsigned long attack_msec = 0;
+unsigned long decay_msec = 0;
+unsigned long sustain = 0;
+unsigned long release_msec = 0;
+unsigned long env_amt;
+
 unsigned long env1_attack_msec = 200; //milliseconds
 unsigned long env1_decay_msec = 400;
 unsigned long env1_sustain = 2000;
 unsigned long env1_release_msec = 400;
 
-unsigned long vca_env_amt = 4095;
 unsigned long env2_attack_msec = 100; //milliseconds
 unsigned long env2_decay_msec = 500;
 unsigned long env2_sustain = 1000;
@@ -78,6 +107,15 @@ unsigned int env2_at_note_off = 0;
 const unsigned int env1_min = 0;
 unsigned long env1_value = 0;
 unsigned long env2_value = 0;
+
+// True: Trigger at every note
+// False: Trigger at first note only
+bool env_trig_mode = False; 
+
+
+// True: 1, False: 2
+bool env_sel = true;
+
 unsigned long curr_filter = 0;
 unsigned long curr_vca = 0;
 unsigned int bent_pitch = 0;
@@ -95,7 +133,8 @@ enum adsr_states {
 adsr_states adsr1_state = Release;
 adsr_states adsr2_state = Release;
 
-
+unsigned int lfo_amount;
+unsigned int lfo_rate;
 unsigned int lfo_amount_max = 127;
 
 unsigned int lfo1_type = 0; //
@@ -105,6 +144,8 @@ unsigned long lfo1_value = 0;
 unsigned int lfo1_amount = 0;
 bool lfo1_retrig = true;
 unsigned long lfo1_trig_time_msec = 0;
+// true 1, false 2
+bool lfo_sel = true;
 
 unsigned int lfo2_type = 0; //
 unsigned long lfo2_period_msec = 1000;
@@ -113,6 +154,8 @@ unsigned long lfo2_value = 0;
 unsigned int lfo2_amount = 0;
 bool lfo2_retrig = true;
 unsigned long lfo2_trig_time_msec = 0;
+
+unsigned long lfo_delay;
 
 
 const int max_wave_types=7;
@@ -130,7 +173,6 @@ const float pi = 3.14159;
 
 void setup() {
 
-  
   Serial.begin(9600);
 
   // Fill in Sine wavetable
@@ -175,8 +217,6 @@ void setup() {
     }
   }
 
-
-
 /*
 Ascending EXP:
 =EXP(-$A1/20)
@@ -218,10 +258,38 @@ where 100 is the max A1 value
   pinMode(PIN_CS_PITCH, OUTPUT);
   pinMode(PIN_CS_FILTER, OUTPUT);
   pinMode(PIN_CS_VOLUME, OUTPUT);
+
+  pinMode(ENV_TRIG_MODE_PIN, INPUT_PULLUP);
+  pinMode(LEGATO_PORTAMENTO_PIN, INPUT_PULLUP);
+  pinMode(VELOCITY_PIN, INPUT_PULLUP);
+  pinMode(ADSR_SELECTOR_PIN, INPUT_PULLUP);
+  pinMode(LFO_SELECTOR_PIN, INPUT_PULLUP);
+  
   SPI.begin();
   SPI.setBitOrder(MSBFIRST);
   SPI.setClockDivider(SPI_CLOCK_DIV2);
   digitalWrite(PIN_GATE, HIGH); // gate is always on. it just creates noise
+}
+
+void readInputs()
+{
+  env_trig_mode = digitalRead(ENV_TRIG_MODE_PIN); // implement
+  legato_or_portamento = digitalRead(LEGATO_PORTAMENTO_PIN);
+  velocity_on_off = digitalRead(VELOCITY_PIN); // implement
+  env_sel = digitalRead(ADSR_SELECTOR_PIN);
+  lfo_sel = digitalRead(LFO_SELECTOR_PIN);
+
+  // todo: scale the correct values
+  lfo_delay = analogRead(LFO_DELAY_PIN);
+  slide_time_msec = analogRead(PORTAMENTO_TIME_PIN);
+  attack_msec = analogRead(ATTACK_PIN);
+  decay_msec = analogRead(DECAY_PIN);
+  sustain = analogRead(SUSTAIN_PIN);
+  release_msec = analogRead(RELEASE_PIN);
+  env_amt = analogRead(ENV_AMT_PIN);
+  lfo_amount = analogRead(LFO_AMT_PIN);
+  lfo_rate = analogRead(LFO_RATE_PIN);
+  lfo2_type = analogRead(LFO_WAVEFORM);
 }
 
 void handleNoteOn(byte inChannel, byte inNote, byte inVelocity)
@@ -271,23 +339,23 @@ void handleControlChange(byte channel, byte number, byte value) {
 
 
     // FIRST BUTTON ROW 
-    case 65:
+//    case 65:
 
-      if (value == 0) {
-        portamento = false; //TODO: portamento and legato  booleans should 
+//      if (value == 0) {
+//        portamento = false; //TODO: portamento and legato  booleans should 
                             //be fixed, they don't behave correctly, when 
                             //both are 0 then there is a delay between notes
-      }
-      else {
-        portamento = true;
-      }
-      break;
+//      }
+//      else {
+//        portamento = true;
+//      }
+//      break;
     case 66:
       if (value == 0) {
-        legato = false;
+        legato_or_portamento = false;
       }
       else {
-        legato = true;
+        legato_or_portamento = true;
       }
       break;
     case 67:
@@ -385,7 +453,7 @@ void handleControlChange(byte channel, byte number, byte value) {
       lfo2_amount = value;
       break;
 
-    // SECOND KNOB ROW
+    // Use attack current and attack next so it gets changed only at the next env run
     // VCF
     case 89:
       //log scale:
@@ -781,10 +849,9 @@ unsigned int pitch_cv(
     unsigned long now_msec,
     unsigned long note_change_time_msec,
     unsigned long slide_time_msec,
-    bool legato,
+    bool legato_or_portamento,
     bool first_note,
     unsigned int pitch_bend_cv,
-    bool portamento,
     unsigned int last_pitch,
     unsigned int dac_max,    
     unsigned int curr_pitch
@@ -795,14 +862,14 @@ unsigned int pitch_cv(
   
   if (!note_stack_is_empty) {
     if ((now_msec > (note_change_time_msec + slide_time_msec ))  || 
-       ((legato) && (first_note )) || (slide_time_msec == 0) ) { 
+       ((legato_or_portamento) && (first_note )) || (slide_time_msec == 0) ) { 
       // normal pitch section
       //TODO: change from peek to the highest note
       result_pitch = note_stack_peek + pitch_bend_cv; 
       
       //Serial.println(note_stack.peek() );
     }
-    else if ((portamento) || ((legato) && (note_stack_count >= 1)) ) { 
+    else if ((not legato_or_portamento) || ((legato_or_portamento) && (note_stack_count >= 1)) ) { 
       // portamento section, or legato
       if (note_stack_peek > last_pitch) {
         result_pitch = last_pitch + ((now_msec - note_change_time_msec) * 
@@ -839,7 +906,7 @@ void loop() {
   now_msec = now_usec / 1000;
  // now_sec = now_usec / 1000000;
 
-
+  readInputs();
 
   // TODO: the following should be made cleaner, in a function
   unsigned int lfo1_value_prev = lfo1_value;
@@ -898,10 +965,9 @@ void loop() {
                          now_msec,
                          note_change_time_msec,
                          slide_time_msec,
-                         legato,
+                         legato_or_portamento,
                          first_note,
                          pitch_bend_cv,
-                         portamento,
                          last_pitch, 
                          dac_max, 
                          curr_pitch);
@@ -929,7 +995,7 @@ void loop() {
                     env2_release_msec,
                     env2_at_note_off);
                     
-  env2_value = 0; // bring this back!
+  //env2_value = 0; // bring this back!
   
   curr_filter = (env1_value * vcf_env_amt) /  dac_max + vcf + 
                 ((lfo1_value * lfo1_amount) / lfo_amount_max) ;
@@ -942,12 +1008,20 @@ void loop() {
     curr_filter = dac_max;
   }
 
+  
+  if (curr_vca > dac_max) { // clear up too big numbers
+    curr_vca = dac_max;
+  }
   // scale based on velocity
   //curr_filter = curr_filter * velocity;
   //Serial.println(curr_filter);
   //curr_filter = 300;
   //Serial.println(curr_filter);
 
+  //Serial.println(digitalRead(ENV_TRIG_MODE_PIN));
+  //Serial.println(digitalRead(LEGATO_PORTAMENTO_PIN));
+  //Serial.println(analogRead(LFO_DELAY_PIN));
+  //Serial.println();
   
   setOutput(curr_pitch);
   setOutput_filter((unsigned int)curr_filter);
