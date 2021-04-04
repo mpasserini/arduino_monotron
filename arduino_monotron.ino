@@ -32,11 +32,15 @@ const int PIN_CS_FILTER = 46;
 const int PIN_CS_VOLUME = 42;
 
 // digital input
-const int ENV_TRIG_MODE_PIN = 23;
 const int LEGATO_PORTAMENTO_PIN = 22;
-const int VELOCITY_PIN = 23;
-const int ADSR_SELECTOR_PIN = 24;
-const int LFO_SELECTOR_PIN = 25;
+const int ENV_TRIG_MODE_PIN = 23;
+const int FILTER_TRACK_PIN = 24;
+const int ADSR_VELOCITY_PIN = 25;
+const int ADSR_SELECTOR_PIN = 26;
+const int LFO_VELOCITY_PIN = 27;
+const int LFO_SELECTOR_PIN = 28;
+
+const int GATE_INPUT_PIN = 29;
 
 // analog input
 const int LFO_DELAY_PIN = 0;
@@ -69,7 +73,8 @@ unsigned long note_off_time_msec = 0;
 unsigned int last_pitch = 0;
 unsigned int curr_pitch = 0;
 unsigned int velocity = 0;
-bool velocity_on_off = False; 
+bool adsr_velocity_on_off = false; 
+bool lfo_velocity_on_off = false; 
 unsigned int velocity_max = 126;
 
 unsigned long now_usec = 0;
@@ -110,7 +115,7 @@ unsigned long env2_value = 0;
 
 // True: Trigger at every note
 // False: Trigger at first note only
-bool env_trig_mode = False; 
+bool env_trig_mode = false; 
 
 
 // True: 1, False: 2
@@ -261,9 +266,11 @@ where 100 is the max A1 value
 
   pinMode(ENV_TRIG_MODE_PIN, INPUT_PULLUP);
   pinMode(LEGATO_PORTAMENTO_PIN, INPUT_PULLUP);
-  pinMode(VELOCITY_PIN, INPUT_PULLUP);
+  pinMode(ADSR_VELOCITY_PIN, INPUT_PULLUP);
   pinMode(ADSR_SELECTOR_PIN, INPUT_PULLUP);
+  pinMode(LFO_VELOCITY_PIN, INPUT_PULLUP);
   pinMode(LFO_SELECTOR_PIN, INPUT_PULLUP);
+  pinMode(GATE_INPUT_PIN, INPUT);
   
   SPI.begin();
   SPI.setBitOrder(MSBFIRST);
@@ -273,10 +280,14 @@ where 100 is the max A1 value
 
 void readInputs()
 {
+  // TODO: CHECK THAT INPUT IS CORRECTLY SCALED TO VAR RANGE
+  // TODO: CHECK FOR LFO AND ENV IF IT'S POSSIBLE TO ASSIGN DIRECTLY BASED ON SELECTOR
+  // TODO: IMPLEMENT MISSING FUNCIONALITY FOR VELOCITY ETC
   env_trig_mode = digitalRead(ENV_TRIG_MODE_PIN); // implement
   legato_or_portamento = digitalRead(LEGATO_PORTAMENTO_PIN);
-  velocity_on_off = digitalRead(VELOCITY_PIN); // implement
+  adsr_velocity_on_off = digitalRead(ADSR_VELOCITY_PIN); // implement
   env_sel = digitalRead(ADSR_SELECTOR_PIN);
+  lfo_velocity_on_off = digitalRead(LFO_VELOCITY_PIN); // implement
   lfo_sel = digitalRead(LFO_SELECTOR_PIN);
 
   // todo: scale the correct values
