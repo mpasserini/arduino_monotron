@@ -50,10 +50,10 @@ const int DECAY_PIN = 3;
 const int SUSTAIN_PIN = 4;
 const int RELEASE_PIN = 5;
 const int ENV_AMT_PIN = 6;
-const int ATTACK_TIME_PIN = 7;
-const int LFO_AMT_PIN =8;
-const int LFO_RATE_PIN =9;
-const int LFO_WAVEFORM = 10;
+//const int ATTACK_TIME_PIN = 7;
+const int LFO_AMT_PIN =7;
+const int LFO_RATE_PIN =8;
+const int LFO_WAVEFORM = 9;
 
 const int GAIN_1 = 0x1;
 const int GAIN_2 = 0x0;
@@ -83,35 +83,52 @@ unsigned long now_msec = 0;
 bool first_note = true;
 // True = legato, False = portamento
 bool legato_or_portamento = true;
-unsigned long slide_time_msec = 100;
+unsigned long slide_time_msec = 0;
 bool note_on = false;
 StackArray <unsigned int> note_stack;
 
+bool filter_track = false;
+
 unsigned int vcf = 0;
-unsigned long vcf_env_amt = 4095;
-unsigned long vca_env_amt = 4095;
+//unsigned long vcf_env_amt = 4095;
+//unsigned long vca_env_amt = 4095;
 
 unsigned long attack_msec = 0;
 unsigned long decay_msec = 0;
 unsigned long sustain = 0;
 unsigned long release_msec = 0;
-unsigned long env_amt;
 
-unsigned long env1_attack_msec = 200; //milliseconds
-unsigned long env1_decay_msec = 400;
-unsigned long env1_sustain = 2000;
-unsigned long env1_release_msec = 400;
 
-unsigned long env2_attack_msec = 100; //milliseconds
-unsigned long env2_decay_msec = 500;
-unsigned long env2_sustain = 1000;
-unsigned long env2_release_msec = 300;
+unsigned long attack_pot = 0;
+unsigned long decay_pot = 0;
+unsigned long sustain_pot = 0;
+unsigned long release_pot = 0;
+unsigned long env_amt_pot = 0;
 
-unsigned int env1_at_note_off = 0;
-unsigned int env2_at_note_off = 0;
-const unsigned int env1_min = 0;
-unsigned long env1_value = 0;
-unsigned long env2_value = 0;
+
+unsigned long attack_pot_prev = 0;
+unsigned long decay_pot_prev = 0;
+unsigned long sustain_pot_prev = 0;
+unsigned long release_pot_prev = 0;
+unsigned long env_amt_pot_prev = 0;
+
+unsigned long filter_env_attack_msec = 000; //milliseconds
+unsigned long filter_env_decay_msec = 400;
+unsigned long filter_env_sustain = 2000;
+unsigned long filter_env_release_msec = 100;
+unsigned long filter_env_amt = 4095;
+
+unsigned long vca_env_attack_msec = 0; //milliseconds
+unsigned long vca_env_decay_msec = 0;
+unsigned long vca_env_sustain = 4095;
+unsigned long vca_env_release_msec = 300;
+unsigned long vca_env_amt = 4095;
+
+unsigned int filter_env_at_note_off = 0;
+unsigned int vca_env_at_note_off = 0;
+const unsigned int filter_env_min = 0;
+unsigned long filter_env_value = 0;
+unsigned long vca_env_value = 0;
 
 // True: Trigger at every note
 // False: Trigger at first note only
@@ -138,8 +155,8 @@ enum adsr_states {
 adsr_states adsr1_state = Release;
 adsr_states adsr2_state = Release;
 
-unsigned int lfo_amount;
-unsigned int lfo_rate;
+unsigned int lfo_amount = 0;
+unsigned int lfo_rate = 0;
 unsigned int lfo_amount_max = 127;
 
 unsigned int lfo1_type = 0; //
@@ -266,6 +283,7 @@ where 100 is the max A1 value
 
   pinMode(ENV_TRIG_MODE_PIN, INPUT_PULLUP);
   pinMode(LEGATO_PORTAMENTO_PIN, INPUT_PULLUP);
+  pinMode(FILTER_TRACK_PIN, INPUT_PULLUP);
   pinMode(ADSR_VELOCITY_PIN, INPUT_PULLUP);
   pinMode(ADSR_SELECTOR_PIN, INPUT_PULLUP);
   pinMode(LFO_VELOCITY_PIN, INPUT_PULLUP);
@@ -285,19 +303,81 @@ void readInputs()
   // TODO: IMPLEMENT MISSING FUNCIONALITY FOR VELOCITY ETC
   env_trig_mode = digitalRead(ENV_TRIG_MODE_PIN); // implement
   legato_or_portamento = digitalRead(LEGATO_PORTAMENTO_PIN);
+  filter_track = digitalRead(FILTER_TRACK_PIN);
   adsr_velocity_on_off = digitalRead(ADSR_VELOCITY_PIN); // implement
   env_sel = digitalRead(ADSR_SELECTOR_PIN);
   lfo_velocity_on_off = digitalRead(LFO_VELOCITY_PIN); // implement
   lfo_sel = digitalRead(LFO_SELECTOR_PIN);
-
+  
   // todo: scale the correct values
   lfo_delay = analogRead(LFO_DELAY_PIN);
   slide_time_msec = analogRead(PORTAMENTO_TIME_PIN);
-  attack_msec = analogRead(ATTACK_PIN);
-  decay_msec = analogRead(DECAY_PIN);
-  sustain = analogRead(SUSTAIN_PIN);
-  release_msec = analogRead(RELEASE_PIN);
-  env_amt = analogRead(ENV_AMT_PIN);
+
+  
+  attack_pot  = analogRead(ATTACK_PIN);
+  decay_pot   = analogRead(DECAY_PIN);
+  sustain_pot = analogRead(SUSTAIN_PIN);
+  release_pot = analogRead(RELEASE_PIN);
+  env_amt_pot = analogRead(ENV_AMT_PIN);
+  if (attack_pot != attack_pot_prev){
+    if (env_sel){
+      filter_env_attack_msec = attack_pot * 2;
+    } else {
+      vca_env_attack_msec = attack_pot * 2;
+    }
+  }
+  if (attack_pot != attack_pot_prev){
+    if (env_sel){
+      filter_env_attack_msec = attack_pot * 2;
+    } else {
+      vca_env_attack_msec = attack_pot * 2;
+    }
+  }
+  if (decay_pot != decay_pot_prev){
+    if (env_sel){
+      filter_env_decay_msec = decay_pot * 2;
+    } else {
+      vca_env_decay_msec = decay_pot * 2;
+    }
+  }
+  if (sustain_pot != sustain_pot_prev){
+    if (env_sel){
+      filter_env_sustain = sustain_pot * 4;
+    } else {
+      vca_env_sustain = sustain_pot * 4;
+    }
+  }
+  if (release_pot != release_pot_prev){
+    if (env_sel){
+      filter_env_release_msec = release_pot * 2;
+    } else {
+      vca_env_release_msec = release_pot * 2;
+    }
+  }
+  if (env_amt_pot != env_amt_pot_prev){
+    if (env_sel){
+      filter_env_amt = env_amt_pot * 4;
+    } else {
+      vca_env_amt = env_amt_pot * 4;
+    }
+  }
+  
+/*  if (env_sel){
+    filter_env_attack_msec = analogRead(ATTACK_PIN) * 2;
+    filter_env_decay_msec = analogRead(DECAY_PIN) * 2;
+    filter_env_sustain = analogRead(SUSTAIN_PIN) * 4;
+    filter_env_release_msec = analogRead(RELEASE_PIN) *2 ;
+    filter_env_amt = analogRead(ENV_AMT_PIN) * 4;
+  }
+  else {
+    
+    vca_env_attack_msec = analogRead(ATTACK_PIN) * 2;
+    vca_env_decay_msec = analogRead(DECAY_PIN) * 2;
+    vca_env_sustain = analogRead(SUSTAIN_PIN) * 4;
+    vca_env_release_msec = analogRead(RELEASE_PIN) * 2;
+    vca_env_amt = analogRead(ENV_AMT_PIN) * 4;
+  }*/
+  
   lfo_amount = analogRead(LFO_AMT_PIN);
   lfo_rate = analogRead(LFO_RATE_PIN);
   lfo2_type = analogRead(LFO_WAVEFORM);
@@ -332,8 +412,8 @@ void handleNoteOff(byte inChannel, byte inNote, byte inVelocity)
   }
   if (note_stack.isEmpty()) {
     note_off_time_msec = now_msec;
-    env1_at_note_off = env1_value;
-    env2_at_note_off = env2_value;
+    filter_env_at_note_off = filter_env_value;
+    vca_env_at_note_off = vca_env_value;
     first_note = true;
     note_on = false;
   }
@@ -453,7 +533,7 @@ void handleControlChange(byte channel, byte number, byte value) {
       break;
 
     case 83:
-      vcf_env_amt = ((unsigned long)value * dac_max) / 127 ;
+      filter_env_amt = ((unsigned long)value * dac_max) / 127 ;
       break;
 
     case 84:
@@ -468,46 +548,46 @@ void handleControlChange(byte channel, byte number, byte value) {
     // VCF
     case 89:
       //log scale:
-      env1_attack_msec =  (1 / log10(129 - (unsigned long)value)) * 10000 - 4738;
+      filter_env_attack_msec =  (1 / log10(129 - (unsigned long)value)) * 10000 - 4738;
       // linear version:
-      //env1_attack_msec =  (unsigned long)value * 10000 / 127 ;
+      //filter_env_attack_msec =  (unsigned long)value * 10000 / 127 ;
       break;
 
     case 90:
       //log scale:
-      env1_decay_msec =  (1 / log10(129 - (unsigned long)value)) * 10000 - 4738;
+      filter_env_decay_msec =  (1 / log10(129 - (unsigned long)value)) * 10000 - 4738;
       // linear version:
-      //env1_decay_msec = (unsigned long)value * 10000 / 127;
+      //filter_env_decay_msec = (unsigned long)value * 10000 / 127;
       break;
 
     case 91:
-      env1_sustain = (unsigned long)value * dac_max / 127 ;
+      filter_env_sustain = (unsigned long)value * dac_max / 127 ;
       break;
 
     case 92:
       //log scale:
-      env1_release_msec = (1 / log10(129 - (unsigned long)value)) * 10000 - 4738;
+      filter_env_release_msec = (1 / log10(129 - (unsigned long)value)) * 10000 - 4738;
       break;
 
 
     // VCA
     case 93:
       //log scale:
-      env2_attack_msec =  (1 / log10(129 - (unsigned long)value)) * 10000 - 4738;
+      vca_env_attack_msec =  (1 / log10(129 - (unsigned long)value)) * 10000 - 4738;
       break;
 
     case 94:
       //log scale:
-      env2_decay_msec =  (1 / log10(129 - (unsigned long)value)) * 10000 - 4738;
+      vca_env_decay_msec =  (1 / log10(129 - (unsigned long)value)) * 10000 - 4738;
       break;
 
     case 95:
-      env2_sustain = (unsigned long)value * dac_max / 127 ;
+      vca_env_sustain = (unsigned long)value * dac_max / 127 ;
       break;
 
     case 96:
       //log scale:
-      env2_release_msec = (1 / log10(129 - (unsigned long)value)) * 10000 - 4738;
+      vca_env_release_msec = (1 / log10(129 - (unsigned long)value)) * 10000 - 4738;
       break;
 
 
@@ -983,35 +1063,35 @@ void loop() {
                          dac_max, 
                          curr_pitch);
 
-  env1_value = adsr(note_stack_is_empty, 
+  filter_env_value = adsr(note_stack_is_empty, 
                     now_msec, 
                     env_trig_time_msec, 
-                    env1_attack_msec, 
+                    filter_env_attack_msec, 
                     note_on,
                     adsr1_state, 
-                    env1_sustain,
-                    env1_decay_msec,
-                    env1_release_msec,
-                    env1_at_note_off);
+                    filter_env_sustain,
+                    filter_env_decay_msec,
+                    filter_env_release_msec,
+                    filter_env_at_note_off);
 
 
-  env2_value = adsr(note_stack_is_empty, 
+  vca_env_value = adsr(note_stack_is_empty, 
                     now_msec, 
                     env_trig_time_msec, 
-                    env2_attack_msec, 
+                    vca_env_attack_msec, 
                     note_on,
                     adsr2_state, 
-                    env2_sustain,
-                    env2_decay_msec,
-                    env2_release_msec,
-                    env2_at_note_off);
+                    vca_env_sustain,
+                    vca_env_decay_msec,
+                    vca_env_release_msec,
+                    vca_env_at_note_off);
                     
-  //env2_value = 0; // bring this back!
+  //vca_env_value = 0; // bring this back!
   
-  curr_filter = (env1_value * vcf_env_amt) /  dac_max + vcf + 
+  curr_filter = (filter_env_value * filter_env_amt) /  dac_max + vcf + 
                 ((lfo1_value * lfo1_amount) / lfo_amount_max) ;
 
-  curr_vca = (env2_value * vca_env_amt) /  dac_max  + 
+  curr_vca = (vca_env_value * vca_env_amt) /  dac_max  + 
                 ((lfo2_value * lfo2_amount) / lfo_amount_max) ; // ADD VELOCITY SENSITIVITY HERE!!!
 
   
@@ -1028,11 +1108,6 @@ void loop() {
   //Serial.println(curr_filter);
   //curr_filter = 300;
   //Serial.println(curr_filter);
-
-  //Serial.println(digitalRead(ENV_TRIG_MODE_PIN));
-  //Serial.println(digitalRead(LEGATO_PORTAMENTO_PIN));
-  //Serial.println(analogRead(LFO_DELAY_PIN));
-  //Serial.println();
   
   setOutput(curr_pitch);
   setOutput_filter((unsigned int)curr_filter);
