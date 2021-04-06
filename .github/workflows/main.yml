@@ -35,6 +35,6 @@ jobs:
       - name: Install platform
         run: |
           arduino-cli core update-index
-          arduino-cli core install $
+          arduino-cli core install arduino:avr
       - name: Compile Sketch
         run: arduino-cli compile --fqbn $ ./arduino_monotron.ino --warnings more
