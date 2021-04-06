@@ -37,4 +37,4 @@ jobs:
           arduino-cli core update-index
           arduino-cli core install $
       - name: Compile Sketch
-        run: arduino-cli compile --fqbn $ ./Blink --warnings more
+        run: arduino-cli compile --fqbn $ ./arduino_monotron.ino --warnings more
