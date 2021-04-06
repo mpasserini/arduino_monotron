@@ -1,6 +1,6 @@
 #include <MIDI.h>
 #include <SPI.h>
-#include <StackArray.h>
+#include "libraries/StackArray/StackArray.h"
 
 //http://www.ripmat.it/mate/d/dc/dcee.html
 //https://www.arduino.cc/en/Tutorial/DueSimpleWaveformGenerator

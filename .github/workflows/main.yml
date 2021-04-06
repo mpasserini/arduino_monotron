@@ -38,7 +38,5 @@ jobs:
           arduino-cli core install arduino:avr
       - name: Install MIDI library
         run: arduino-cli lib install "MIDI Library@5.0.2"
-      - name: Install StackArray library
-        run: arduino-cli lib install --git-url "https://github.com/oogre/StackArray.git"
       - name: Compile Sketch
         run: arduino-cli compile --fqbn arduino:avr:mega ./arduino_monotron.ino --warnings more
