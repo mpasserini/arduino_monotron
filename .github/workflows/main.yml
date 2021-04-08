@@ -53,6 +53,14 @@ jobs:
 
     steps:
       - uses: actions/checkout@v2
+      - name: Setup Arduino CLI
+        uses: arduino/setup-arduino-cli@v1.1.1
+      - name: Install platform
+        run: |
+          arduino-cli core update-index
+          arduino-cli core install arduino:avr
+      - name: Install MIDI library
+        run: arduino-cli lib install "MIDI Library@5.0.2"
       - uses: Arduino-CI/action@stable-1.x   # or latest, or a pinned version
         env:
           USE_SUBDIR: .
