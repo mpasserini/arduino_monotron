@@ -54,7 +54,7 @@ jobs:
     steps:
       - uses: actions/checkout@v2
       - name: Install MIDI library
-        run: bundle install "MIDI Library@5.0.2"
+        run: bundle install "MIDI Library"
       - uses: Arduino-CI/action@stable-1.x   # or latest, or a pinned version
         env:
           USE_SUBDIR: .
