@@ -48,15 +48,3 @@ jobs:
         run: arduino-cli compile --fqbn arduino:avr:mega ./arduino_monotron.ino --warnings more
 
 
-  arduino_ci:
-    runs-on: ubuntu-latest
-
-    steps:
-      - uses: actions/checkout@v2
-      - name: Install MIDI library
-        run: bundle install "MIDI Library"
-      - uses: Arduino-CI/action@stable-1.x   # or latest, or a pinned version
-        env:
-          USE_SUBDIR: .
-          EXPECT_EXAMPLES: false
-          EXPECT_UNITTESTS: false
