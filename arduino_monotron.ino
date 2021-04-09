@@ -32,7 +32,7 @@
 // check key tracking
 // add and test gate input
 
-const int PIN_GATE = 45;
+//const int PIN_GATE = 45;
 const int PIN_CS_PITCH = 44;
 const int PIN_CS_FILTER = 46;
 const int PIN_CS_VOLUME = 42;
@@ -41,12 +41,16 @@ const int PIN_CS_VOLUME = 42;
 const int LEGATO_PORTAMENTO_PIN = 22;
 const int ENV_TRIG_MODE_PIN = 23;
 const int FILTER_TRACK_PIN = 24;
-const int ADSR_VELOCITY_PIN = 25;
-const int ADSR_SELECTOR_PIN = 26;
-const int LFO_VELOCITY_PIN = 27;
-const int LFO_SELECTOR_PIN = 28;
+const int ADSR_SELECTOR_PIN = 25;
+const int ADSR_VELOCITY_PIN = 26;
+const int LFO_SELECTOR_PIN = 27;
+const int LFO_VELOCITY_PIN = 28;
 
 const int GATE_INPUT_PIN = 29;
+
+
+int gate_state = LOW;
+int gate_prev_state = LOW;
 
 // analog input
 const int LFO_DELAY_PIN = 0;
@@ -308,7 +312,7 @@ where 100 is the max A1 value
   SPI.begin();
   SPI.setBitOrder(MSBFIRST);
   SPI.setClockDivider(SPI_CLOCK_DIV2);
-  digitalWrite(PIN_GATE, HIGH); // gate is always on. it just creates noise
+  //digitalWrite(PIN_GATE, HIGH); // gate is always on. it just creates noise
 }
 
 void readInputs()
@@ -337,6 +341,8 @@ void readInputs()
   if (attack_pot != attack_pot_prev){
     if (env_sel){
       filter_env_attack_msec = attack_pot * 2;
+      //Serial.println(filter_env_attack_msec);
+
     } else {
       vca_env_attack_msec = attack_pot * 2;
     }
@@ -877,7 +883,7 @@ unsigned int adsr_release( unsigned long release_time,
 
 
 // this function returns the adsr value at a given time
-unsigned long adsr( bool note_stack_is_empty, 
+unsigned long adsr( bool note_stack_is_empty, // or gate state
                     unsigned long now_msec, 
                     unsigned long env_trig_time_msec, 
                     unsigned long env_attack_msec, 
@@ -1012,6 +1018,9 @@ void loop() {
   unsigned int note_stack_peek = 0;
   bool note_stack_is_empty = true;
   // static
+
+  
+  gate_state = digitalRead(GATE_INPUT_PIN); 
   
   midiA.read();
   now_usec = micros();
@@ -1019,6 +1028,29 @@ void loop() {
  // now_sec = now_usec / 1000000;
 
   readInputs();
+
+
+  
+  if ((gate_prev_state == LOW) && (gate_state == HIGH)){
+    //Serial.println("Up");
+    gate_prev_state = HIGH; 
+    note_on=1;
+    env_trig_time_msec = now_msec ;
+    lfo1_trig_time_msec = now_msec;
+  }
+  //else if ((gate_prev_state == HIGH) && (gate_state == HIGH) && (env_trig = 1)) {
+  //  env_trig = 0;
+  //}
+  else if ((gate_prev_state == HIGH) && (gate_state == LOW)){
+    //Serial.println("Low");
+    gate_prev_state = LOW;
+    note_on = 0;
+    note_off_time_msec = now_msec;
+    filter_env_at_note_off = filter_env_value;
+    vca_env_at_note_off = vca_env_value;
+  }
+
+  
 
   // TODO: the following should be made cleaner, in a function
   unsigned int lfo1_value_prev = lfo1_value;
@@ -1070,6 +1102,10 @@ void loop() {
   if (!note_stack_is_empty) {
     note_stack_peek = note_stack.peek();
   } 
+
+  note_stack_is_empty = not ((not note_stack_is_empty) || gate_state);
+
+  
   curr_pitch = pitch_cv( 
                          note_stack_is_empty,
                          note_stack_peek,
