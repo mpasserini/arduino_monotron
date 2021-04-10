@@ -1,6 +1,6 @@
 #include <MIDI.h>
 #include <SPI.h>
-#include "libraries/StackArray/StackArray.h"
+#include "libraries/StackArray/StackArray.h" 
 
 //http://www.ripmat.it/mate/d/dc/dcee.html
 //https://www.arduino.cc/en/Tutorial/DueSimpleWaveformGenerator
@@ -184,6 +184,7 @@ unsigned int lfo_filt_wave = 0; //
 unsigned long lfo_filt_period_msec = 1000;
 unsigned long lfo_filt_period_msec_new = 1000;
 unsigned long lfo_filt_value = 0; 
+unsigned long lfo_filt_value_prev = 0;
 float lfo_filt_amt = 0.0;
 bool lfo_filt_retrig = false;
 // true 1, false 2
@@ -334,6 +335,12 @@ void readInputs()
       } else {
           lfo_filt_retrig = true;
       }
+  } else {
+      if (lfo_sel){
+          lfo_vca_retrig = false;
+      } else {
+          lfo_filt_retrig = false;
+      }
   }
   
   // todo: scale the correct values
@@ -400,16 +407,19 @@ void readInputs()
   } 
   if (lfo_period_pot != lfo_period_pot_prev){
     if (lfo_sel){
-      lfo_vca_period_msec_new = (pot_max - lfo_period_pot) * 4;
+      // divided by 4 to improve pot precision which is oscillating
+      //lfo_vca_period_msec_new = ((pot_max - lfo_period_pot)/4)*16;
+      lfo_vca_period_msec_new = ((pot_max - lfo_period_pot))*4;
     } else {
-      lfo_filt_period_msec_new = (pot_max - lfo_period_pot) * 4;
+      //lfo_filt_period_msec_new = ((pot_max - lfo_period_pot)/4)*16;
+      lfo_filt_period_msec_new = ((pot_max - lfo_period_pot))*4;
     }
-    lfo_trig_time_msec = now_msec;
+    //lfo_trig_time_msec = now_msec;
     lfo_period_pot_prev = lfo_period_pot;    
+    //Serial.println(lfo_filt_period_msec_new);
   }
   if (lfo_wave_pot != lfo_wave_pot_prev){
     if (lfo_sel){
-      
       lfo_vca_wave = (pot_max - lfo_wave_pot) / 170;
     } else {
       lfo_filt_wave = (pot_max - lfo_wave_pot) / 170;
@@ -708,32 +718,23 @@ unsigned int lfo_wavetable(unsigned long period,
                            unsigned long trig_time, 
                            bool lfo_retrig) {
 
-
-
   float wave_table_index_float = 0;
-  if (not lfo_retrig ){
-      trig_time = 0;                                                   
-  }
+  //if (not lfo_retrig ){
+  //    trig_time = 0;                                                   
+  //}
                          
   // if period != 0
   //float wave_table_index_float;
 
-
   // REMOVE <<<<<<<<<<<<<<<<<<<<<<<<<<<<
-  lfo_retrig = 0;
+  //lfo_retrig = 0;
    
- 
-
     wave_table_index_float = get_wave_table_index_float(wave_table_resolution,
                                ((current_time-trig_time) % period),
                                period);
-    //wave_table_index_float = (float)(wave_table_resolution * 
-    //                         (current_time % period)) / period;
   
-
   int wave_table_index = (int)wave_table_index_float;
   int wave_table_index_next = (wave_table_index + 1) % wave_table_resolution;
-
 
 
   unsigned int interpolated_value = line_by_two_points(wave_table_index_float, 
@@ -743,11 +744,6 @@ unsigned int lfo_wavetable(unsigned long period,
                                             (int)wave_table[wave_table_type][wave_table_index_next]);
   
   return interpolated_value;
-  
-  //return wave_table[wave_table_type][wave_table_index] + 
-  //       ((wave_table_index_float - wave_table_index) * 
-  //       ((int)wave_table[wave_table_type][wave_table_index_next] - 
-  //       (int)wave_table[wave_table_type][wave_table_index]));  
 }
 
 
@@ -811,23 +807,24 @@ unsigned int adsr_attack(unsigned long attack_time,
   // avoid division by 0
   if (attack_time == 0){
       return 0;
-  }
+  } else {
 
-  float wave_table_index_float = get_wave_table_index_float(wave_table_resolution,
+      float wave_table_index_float = get_wave_table_index_float(wave_table_resolution,
                                                             (current_time - trig_time),
                                                             attack_time); 
                                                              
-  int wave_table_index = (int)wave_table_index_float;
+      int wave_table_index = (int)wave_table_index_float;
   
-  int wave_table_index_next = next_index(wave_table_index, 
+      int wave_table_index_next = next_index(wave_table_index, 
                                          wave_table_resolution);
                                          
-  unsigned int interpolated_value = line_by_two_points(wave_table_index_float, 
+      unsigned int interpolated_value = line_by_two_points(wave_table_index_float, 
                                             wave_table_index, 
                                             wave_table_index_next,
                                             (int)wave_table[wave_table_type][wave_table_index], 
                                             (int)wave_table[wave_table_type][wave_table_index_next]);
-  return interpolated_value;
+      return interpolated_value;
+  }
 }
 
 unsigned int  adsr_decay( unsigned long decay_time, 
@@ -1057,23 +1054,15 @@ void loop() {
   midiA.read();
   now_usec = micros();
   now_msec = now_usec / 1000;
- // now_sec = now_usec / 1000000;
 
   readInputs();
 
-
-  
   if ((gate_prev_state == LOW) && (gate_state == HIGH)){
     gate_prev_state = HIGH; 
     note_on=1;
     env_trig_time_msec = now_msec ;
-
-    // only if retrig is on >>>>>>>>>>>>>>>.
     lfo_trig_time_msec = now_msec;
   }
-  //else if ((gate_prev_state == HIGH) && (gate_state == HIGH) && (env_trig = 1)) {
-  //  env_trig = 0;
-  //}
   else if ((gate_prev_state == HIGH) && (gate_state == LOW)){
     gate_prev_state = LOW;
     note_on = 0;
@@ -1082,38 +1071,32 @@ void loop() {
     vca_env_at_note_off = vca_env_value;
   }
 
-  
-  if (lfo_filt_period_msec_new == 0) {
+  if (lfo_filt_period_msec == 0) {
     lfo_filt_value = dac_max / 2;
   }
   else {
-  // TODO: the following should be made cleaner, in a function
-      unsigned int lfo_filt_value_prev = lfo_filt_value;
+      lfo_filt_value_prev = lfo_filt_value;
       lfo_filt_value = lfo_wavetable(lfo_filt_period_msec, 
                              now_msec, 
                              wave_table, 
                              lfo_filt_wave, 
                              lfo_trig_time_msec, 
                              lfo_filt_retrig);  
-                              
-      if (lfo_filt_period_msec != lfo_filt_period_msec_new){
-//    if (lfo_filt_value >= 2048 && lfo_filt_value_prev <= 2048){      
-           lfo_filt_period_msec = lfo_filt_period_msec_new;
-//       lfo_trig_time_msec = now_msec;
-//       lfo_filt_value = lfo_wavetable(lfo_filt_period_msec, 
-//                                  now_msec, 
-//                                  wave_table, 
-//                                  lfo_filt_wave, 
-//                                  lfo_trig_time_msec, 
-//                                  lfo_filt_retrig);
-//    }
-     }
+  }
+
+  // knob has changed
+  if (lfo_filt_period_msec != lfo_filt_period_msec_new){
+      // wait zero crossing
+      if ((lfo_filt_value_prev <= (dac_max/2) and lfo_filt_value >= (dac_max/2))){;
+        // restart wave at zero crossing
+        lfo_trig_time_msec = now_msec; 
+        lfo_filt_period_msec = lfo_filt_period_msec_new;
+      }
   }
   
- 
 
-  //Serial.println(lfo_filt_wave);
   //Serial.println(lfo_filt_value);
+  //Serial.println(lfo_filt_retrig);
 /*
   unsigned int lfo_vca_value_prev = lfo_vca_value;
   lfo_vca_value = lfo_wavetable(lfo_vca_period_msec, 
@@ -1137,8 +1120,6 @@ void loop() {
 
 */
   
-
-
   note_stack_is_empty = note_stack.isEmpty();
   if (!note_stack_is_empty) {
     note_stack_peek = note_stack.peek();
@@ -1146,7 +1127,6 @@ void loop() {
 
   note_stack_is_empty = not ((not note_stack_is_empty) || gate_state);
 
-  
   curr_pitch = pitch_cv( 
                          note_stack_is_empty,
                          note_stack_peek,
@@ -1187,11 +1167,7 @@ void loop() {
   float  lfo_filt_value_scaled = 0;
   lfo_filt_value_scaled = ((((float)dac_max/2)-(float)lfo_filt_value) /2)*lfo_filt_amt; 
   
-  //Serial.println(lfo_filt_amt);
-  //Serial.println(lfo_filt_value_signed);
-
   float filter_float=0;
-  //curr_filter = (((filter_env_value * filter_env_amt) /  dac_max + vcf)) ;
   
   filter_float = (float)(((filter_env_value * filter_env_amt) /  dac_max + vcf))+lfo_filt_value_scaled ;
   if (filter_float < 0){
@@ -1199,7 +1175,6 @@ void loop() {
   } else {
       curr_filter = filter_float;
   }
-  //Serial.println(curr_filter);
 //  curr_vca = (vca_env_value * vca_env_amt) /  dac_max  + 
 //                ((lfo_vca_value * lfo_vca_amt) / lfo_amt_max) ; // ADD VELOCITY SENSITIVITY HERE!!!
   curr_vca = (vca_env_value * vca_env_amt) /  dac_max   ; // ADD VELOCITY SENSITIVITY HERE!!!
