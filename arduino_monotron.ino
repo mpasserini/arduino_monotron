@@ -28,11 +28,8 @@
 
 // TODO:
 // fix legato
-// add lfo
 // check key tracking
-// add and test gate input
 
-//const int PIN_GATE = 45;
 const int PIN_CS_PITCH = 44;
 const int PIN_CS_FILTER = 46;
 const int PIN_CS_VOLUME = 42;
@@ -47,7 +44,6 @@ const int LFO_RETRIG_PIN = 27;
 const int LFO_SELECTOR_PIN = 28;
 
 const int GATE_INPUT_PIN = 29;
-
 
 int gate_state = LOW;
 int gate_prev_state = LOW;
@@ -109,7 +105,6 @@ unsigned long decay_msec = 0;
 unsigned long sustain = 0;
 unsigned long release_msec = 0;
 
-
 // current val and prev are stored so that
 // the adsr1/2 or lfo_filt/2 switches don't skip
 // when changing
@@ -154,7 +149,6 @@ unsigned long vca_env_value = 0;
 // False: Trigger at first note only
 bool env_trig_mode = false; 
 
-
 // True: 1, False: 2
 bool env_sel = true;
 
@@ -164,7 +158,6 @@ unsigned int bent_pitch = 0;
 unsigned int pitch_bend_cv = 0;
 unsigned int pitch_bend_max = 8192;
 unsigned int pitch_bend_notes = 12;
-
 
 enum adsr_states {
   Attack,
@@ -178,9 +171,10 @@ adsr_states adsr2_state = Release;
 float lfo_amt = 0.0;
 unsigned int lfo_period = 0;
 float lfo_amt_max = 1.0;
-unsigned long lfo_trig_time_msec = 0;
 
-unsigned int lfo_filt_wave = 0; //
+unsigned long lfo_filt_trig_time_msec = 0;
+unsigned int lfo_filt_wave = 0; 
+unsigned int lfo_filt_wave_new = 0; 
 unsigned long lfo_filt_period_msec = 1000;
 unsigned long lfo_filt_period_msec_new = 1000;
 unsigned long lfo_filt_value = 0; 
@@ -190,7 +184,9 @@ bool lfo_filt_retrig = false;
 // true 1, false 2
 bool lfo_sel = true;
 
-unsigned int lfo_vca_wave = 0; //
+unsigned long lfo_vca_trig_time_msec = 0;
+unsigned int lfo_vca_wave = 0; 
+unsigned int lfo_vca_wave_new = 0; 
 unsigned long lfo_vca_period_msec = 1000;
 unsigned long lfo_vca_period_msec_new = 1000;
 unsigned long lfo_vca_value = 0; 
@@ -201,10 +197,8 @@ unsigned long lfo_delay;
 
 
 const int max_wave_types=7;
-const int  wave_table_resolution=16; //increase for more precision, 
-                                     //maybe not needed? 
-                                     //It's  already interpolated
-                                     // 16 is good?
+const int  wave_table_resolution=64; //increase for more precision, 
+                                     //from 16 it looks ok?
                                      
 unsigned int wave_table[max_wave_types][wave_table_resolution];
 
@@ -291,6 +285,8 @@ where 100 is the max A1 value
                        );
   }
   wave_table[6][wave_table_resolution-1] = (unsigned int)dac_max;
+
+  // TODO ADD RANDOM
   
   midiA.begin(MIDI_CHANNEL_OMNI);
   midiA.setHandleNoteOn(handleNoteOn);
@@ -313,13 +309,10 @@ where 100 is the max A1 value
   SPI.begin();
   SPI.setBitOrder(MSBFIRST);
   SPI.setClockDivider(SPI_CLOCK_DIV2);
-  //digitalWrite(PIN_GATE, HIGH); // gate is always on. it just creates noise
 }
 
 void readInputs()
 {
-  // TODO: CHECK THAT INPUT IS CORRECTLY SCALED TO VAR RANGE
-  // TODO: CHECK FOR LFO AND ENV IF IT'S POSSIBLE TO ASSIGN DIRECTLY BASED ON SELECTOR
   // TODO: IMPLEMENT MISSING FUNCIONALITY FOR VELOCITY ETC
   env_trig_mode = digitalRead(ENV_TRIG_MODE_PIN); // implement
   legato_or_portamento = digitalRead(LEGATO_PORTAMENTO_PIN);
@@ -407,24 +400,18 @@ void readInputs()
   } 
   if (lfo_period_pot != lfo_period_pot_prev){
     if (lfo_sel){
-      // divided by 4 to improve pot precision which is oscillating
-      //lfo_vca_period_msec_new = ((pot_max - lfo_period_pot)/4)*16;
       lfo_vca_period_msec_new = ((pot_max - lfo_period_pot))*4;
     } else {
-      //lfo_filt_period_msec_new = ((pot_max - lfo_period_pot)/4)*16;
       lfo_filt_period_msec_new = ((pot_max - lfo_period_pot))*4;
     }
-    //lfo_trig_time_msec = now_msec;
     lfo_period_pot_prev = lfo_period_pot;    
-    //Serial.println(lfo_filt_period_msec_new);
   }
   if (lfo_wave_pot != lfo_wave_pot_prev){
     if (lfo_sel){
-      lfo_vca_wave = (pot_max - lfo_wave_pot) / 170;
+      lfo_vca_wave_new = (pot_max - lfo_wave_pot) / 170;
     } else {
-      lfo_filt_wave = (pot_max - lfo_wave_pot) / 170;
+      lfo_filt_wave_new = (pot_max - lfo_wave_pot) / 170;
     }
-    lfo_trig_time_msec = now_msec;
     lfo_wave_pot_prev = lfo_wave_pot;
   }
 }
@@ -434,8 +421,14 @@ void handleNoteOn(byte inChannel, byte inNote, byte inVelocity)
   note_change_time_msec = now_msec;
   last_pitch = curr_pitch;
   if (note_stack.isEmpty()) {
-    env_trig_time_msec = now_msec ;
-    lfo_trig_time_msec = now_msec;
+      env_trig_time_msec = now_msec ;
+
+      if (lfo_filt_retrig) {
+          lfo_filt_trig_time_msec = now_msec;
+      }
+      if (lfo_vca_retrig) {
+          lfo_vca_trig_time_msec = now_msec;
+      }
   }
   else {
     first_note = false;
@@ -497,26 +490,26 @@ void handleControlChange(byte channel, byte number, byte value) {
       break;
     case 67:
       if (value == 0) {
-        lfo_filt_wave = 0;
+        lfo_filt_wave_new = 0;
       }
       else {
-        lfo_filt_wave = 1;
+        lfo_filt_wave_new = 1;
       }
       break;
     case 68:
       if (value == 0) {
-        lfo_filt_wave = 2;
+        lfo_filt_wave_new = 2;
       }
       else {
-        lfo_filt_wave = 3;
+        lfo_filt_wave_new = 3;
       }
       break;
     case 69:
       if (value == 0) {
-        lfo_filt_wave = 5;
+        lfo_filt_wave_new = 5;
       }
       else {
-        lfo_filt_wave = 6;
+        lfo_filt_wave_new = 6;
       }
       break;
 
@@ -957,7 +950,6 @@ unsigned long adsr( bool note_stack_is_empty, // or gate state
                                env_trig_time_msec, 
                                wave_table, 
                                6 );
-      
       break;
     case Decay: 
       
@@ -1005,8 +997,6 @@ unsigned int pitch_cv(
   ) {
   unsigned int result_pitch = curr_pitch;
 
-
-  
   if (!note_stack_is_empty) {
     if ((now_msec > (note_change_time_msec + slide_time_msec ))  || 
        ((legato_or_portamento) && (first_note )) || (slide_time_msec == 0) ) { 
@@ -1031,15 +1021,12 @@ unsigned int pitch_cv(
     }
   }
 
-
   // boundaries for what the dac is capable of doing
   if (result_pitch > dac_max) {
     result_pitch = dac_max;
   }
 
   return result_pitch;
-
-
 }
 
 void loop() {
@@ -1048,7 +1035,6 @@ void loop() {
   bool note_stack_is_empty = true;
   // static
 
-  
   gate_state = digitalRead(GATE_INPUT_PIN); 
   
   midiA.read();
@@ -1057,12 +1043,20 @@ void loop() {
 
   readInputs();
 
+  // gate goes on
   if ((gate_prev_state == LOW) && (gate_state == HIGH)){
     gate_prev_state = HIGH; 
     note_on=1;
     env_trig_time_msec = now_msec ;
-    lfo_trig_time_msec = now_msec;
+
+    if (lfo_filt_retrig) {
+        lfo_filt_trig_time_msec = now_msec;
+    }
+    if (lfo_vca_retrig) {
+        lfo_vca_trig_time_msec = now_msec;
+    }
   }
+  // gate goes off
   else if ((gate_prev_state == HIGH) && (gate_state == LOW)){
     gate_prev_state = LOW;
     note_on = 0;
@@ -1080,21 +1074,22 @@ void loop() {
                              now_msec, 
                              wave_table, 
                              lfo_filt_wave, 
-                             lfo_trig_time_msec, 
+                             lfo_filt_trig_time_msec, 
                              lfo_filt_retrig);  
   }
 
   // knob has changed
-  if (lfo_filt_period_msec != lfo_filt_period_msec_new){
+  if ((lfo_filt_period_msec != lfo_filt_period_msec_new)
+      || (lfo_filt_wave != lfo_filt_wave_new)){
       // wait zero crossing
       if ((lfo_filt_value_prev <= (dac_max/2) and lfo_filt_value >= (dac_max/2))){;
         // restart wave at zero crossing
-        lfo_trig_time_msec = now_msec; 
+        lfo_filt_trig_time_msec = now_msec; 
         lfo_filt_period_msec = lfo_filt_period_msec_new;
+        lfo_filt_wave = lfo_filt_wave_new;
       }
   }
   
-
   //Serial.println(lfo_filt_value);
   //Serial.println(lfo_filt_retrig);
 /*
@@ -1152,7 +1147,6 @@ void loop() {
                     filter_env_release_msec,
                     filter_env_at_note_off);
 
-
   vca_env_value = adsr(note_stack_is_empty, 
                     now_msec, 
                     env_trig_time_msec, 
@@ -1192,12 +1186,9 @@ void loop() {
   //curr_filter = curr_filter * velocity;
   //Serial.println(curr_filter);
   //curr_filter = 300;
-  //Serial.println(curr_filter);
+  Serial.println(curr_filter);
   
   setOutput(curr_pitch);
   setOutput_filter((unsigned int)curr_filter);
   setOutput_volume((unsigned int)curr_vca);
-
-  
-
 }
