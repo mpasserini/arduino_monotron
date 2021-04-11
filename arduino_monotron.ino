@@ -190,6 +190,7 @@ unsigned int lfo_vca_wave_new = 0;
 unsigned long lfo_vca_period_msec = 1000;
 unsigned long lfo_vca_period_msec_new = 1000;
 unsigned long lfo_vca_value = 0; 
+unsigned long lfo_vca_value_prev = 0;
 float lfo_vca_amt = 0.0;
 bool lfo_vca_retrig = false;
 
@@ -338,7 +339,7 @@ void readInputs()
   
   // todo: scale the correct values
   lfo_delay = analogRead(LFO_DELAY_PIN);
-  slide_time_msec = analogRead(PORTAMENTO_TIME_PIN);
+  slide_time_msec = pot_max - analogRead(PORTAMENTO_TIME_PIN);
 
   
   attack_pot  = analogRead(ATTACK_PIN);
@@ -392,25 +393,25 @@ void readInputs()
   lfo_wave_pot = analogRead(LFO_WAVEFORM);
   if (lfo_amt_pot != lfo_amt_pot_prev){
     if (lfo_sel){
-      lfo_vca_amt =  (float)(pot_max - lfo_amt_pot)/(float)pot_max ;
-    } else {
       lfo_filt_amt =  (float)(pot_max - lfo_amt_pot)/(float)pot_max ;
+    } else {
+      lfo_vca_amt =  (float)(pot_max - lfo_amt_pot)/(float)pot_max ;
     } 
     lfo_amt_pot_prev = lfo_amt_pot;
   } 
   if (lfo_period_pot != lfo_period_pot_prev){
     if (lfo_sel){
-      lfo_vca_period_msec_new = ((pot_max - lfo_period_pot))*4;
-    } else {
       lfo_filt_period_msec_new = ((pot_max - lfo_period_pot))*4;
+    } else {
+      lfo_vca_period_msec_new = ((pot_max - lfo_period_pot))*4;
     }
     lfo_period_pot_prev = lfo_period_pot;    
   }
   if (lfo_wave_pot != lfo_wave_pot_prev){
     if (lfo_sel){
-      lfo_vca_wave_new = (pot_max - lfo_wave_pot) / 170;
-    } else {
       lfo_filt_wave_new = (pot_max - lfo_wave_pot) / 170;
+    } else {
+      lfo_vca_wave_new = (pot_max - lfo_wave_pot) / 170;
     }
     lfo_wave_pot_prev = lfo_wave_pot;
   }
@@ -1029,6 +1030,12 @@ unsigned int pitch_cv(
   return result_pitch;
 }
 
+
+
+
+
+
+
 void loop() {
 
   unsigned int note_stack_peek = 0;
@@ -1048,7 +1055,6 @@ void loop() {
     gate_prev_state = HIGH; 
     note_on=1;
     env_trig_time_msec = now_msec ;
-
     if (lfo_filt_retrig) {
         lfo_filt_trig_time_msec = now_msec;
     }
@@ -1065,6 +1071,7 @@ void loop() {
     vca_env_at_note_off = vca_env_value;
   }
 
+  // FILTER
   if (lfo_filt_period_msec == 0) {
     lfo_filt_value = dac_max / 2;
   }
@@ -1082,7 +1089,7 @@ void loop() {
   if ((lfo_filt_period_msec != lfo_filt_period_msec_new)
       || (lfo_filt_wave != lfo_filt_wave_new)){
       // wait zero crossing
-      if ((lfo_filt_value_prev <= (dac_max/2) and lfo_filt_value >= (dac_max/2))){;
+      if ((lfo_filt_value_prev <= (dac_max/2) and lfo_filt_value >= (dac_max/2))){
         // restart wave at zero crossing
         lfo_filt_trig_time_msec = now_msec; 
         lfo_filt_period_msec = lfo_filt_period_msec_new;
@@ -1090,30 +1097,36 @@ void loop() {
       }
   }
   
-  //Serial.println(lfo_filt_value);
-  //Serial.println(lfo_filt_retrig);
-/*
-  unsigned int lfo_vca_value_prev = lfo_vca_value;
-  lfo_vca_value = lfo_wavetable(lfo_vca_period_msec, 
+
+
+
+  // VCA
+  if (lfo_vca_period_msec == 0) {
+    lfo_vca_value = dac_max / 2;
+  }
+  else {
+      lfo_vca_value_prev = lfo_vca_value;
+      lfo_vca_value = lfo_wavetable(lfo_vca_period_msec, 
                              now_msec, 
                              wave_table, 
                              lfo_vca_wave, 
-                             lfo_trig_time_msec, 
-                             lfo_vca_retrig);    
-  if (lfo_vca_period_msec != lfo_vca_period_msec_new){
-    if (lfo_vca_value >= 2048 && lfo_vca_value_prev <= 2048){
-       lfo_vca_period_msec = lfo_vca_period_msec_new;
-       lfo_trig_time_msec = now_msec;
-       lfo_vca_value = lfo_wavetable(lfo_vca_period_msec, 
-                                  now_msec, 
-                                  wave_table, 
-                                  lfo_vca_wave, 
-                                  lfo_trig_time_msec, 
-                                  lfo_vca_retrig);
-    }
+                             lfo_vca_trig_time_msec, 
+                             lfo_vca_retrig);  
   }
 
-*/
+  // knob has changed
+  if ((lfo_vca_period_msec != lfo_vca_period_msec_new)
+      || (lfo_vca_wave != lfo_vca_wave_new)){
+      // wait zero crossing
+      if ((lfo_vca_value_prev <= (dac_max/2) and lfo_vca_value >= (dac_max/2))){
+        // restart wave at zero crossing
+        lfo_vca_trig_time_msec = now_msec; 
+        lfo_vca_period_msec = lfo_vca_period_msec_new;
+        lfo_vca_wave = lfo_vca_wave_new;
+      }
+  }
+
+  
   
   note_stack_is_empty = note_stack.isEmpty();
   if (!note_stack_is_empty) {
@@ -1160,33 +1173,37 @@ void loop() {
                     
   float  lfo_filt_value_scaled = 0;
   lfo_filt_value_scaled = ((((float)dac_max/2)-(float)lfo_filt_value) /2)*lfo_filt_amt; 
-  
   float filter_float=0;
-  
   filter_float = (float)(((filter_env_value * filter_env_amt) /  dac_max + vcf))+lfo_filt_value_scaled ;
   if (filter_float < 0){
     curr_filter=0;
   } else {
       curr_filter = filter_float;
   }
-//  curr_vca = (vca_env_value * vca_env_amt) /  dac_max  + 
-//                ((lfo_vca_value * lfo_vca_amt) / lfo_amt_max) ; // ADD VELOCITY SENSITIVITY HERE!!!
-  curr_vca = (vca_env_value * vca_env_amt) /  dac_max   ; // ADD VELOCITY SENSITIVITY HERE!!!
 
-  
+
+  // ADD VELOCITY SENSITIVITY HERE!!!
+  float  lfo_vca_value_scaled = 0;
+  lfo_vca_value_scaled = ((((float)dac_max/2)-(float)lfo_vca_value) /2)*lfo_vca_amt; 
+  float vca_float=0;
+  vca_float = (float)(((vca_env_value * vca_env_amt) /  dac_max))+lfo_vca_value_scaled ;
+  if (vca_float < 0){
+    curr_vca=0;
+  } else {
+      curr_vca = vca_float;
+  }
+
   if (curr_filter > dac_max) { // clear up too big numbers
     curr_filter = dac_max;
   }
-
-  
-  if (curr_vca > dac_max) { // clear up too big numbers
+  if (curr_vca > dac_max) { 
     curr_vca = dac_max;
   }
   // scale based on velocity
   //curr_filter = curr_filter * velocity;
   //Serial.println(curr_filter);
   //curr_filter = 300;
-  Serial.println(curr_filter);
+  //Serial.println(curr_vca);
   
   setOutput(curr_pitch);
   setOutput_filter((unsigned int)curr_filter);
