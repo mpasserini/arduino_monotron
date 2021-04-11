@@ -1,11 +1,22 @@
 
 void readInputs()
 {
-  // TODO: IMPLEMENT MISSING FUNCIONALITY FOR VELOCITY ETC
   env_trig_mode = digitalRead(ENV_TRIG_MODE_PIN); 
   legato_or_portamento = digitalRead(LEGATO_PORTAMENTO_PIN);
   filter_track = digitalRead(FILTER_TRACK_PIN);
-  adsr_velocity_on_off = digitalRead(ADSR_VELOCITY_PIN); // implement
+
+  // turn velcity on based on filt/vca selection
+  velocity_on_off = digitalRead(ADSR_VELOCITY_PIN); 
+  if (velocity_on_off != velocity_on_off_prev){
+    if (env_sel){
+      filt_velocity_on_off = velocity_on_off;
+    } else {
+      vca_velocity_on_off = velocity_on_off;
+    }
+    velocity_on_off_prev = velocity_on_off;
+  }
+
+  
   env_sel = digitalRead(ADSR_SELECTOR_PIN);
   lfo_retrig_switch = digitalRead(LFO_RETRIG_PIN); // implement
   lfo_sel = digitalRead(LFO_SELECTOR_PIN);

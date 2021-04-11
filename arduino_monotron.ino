@@ -80,9 +80,11 @@ unsigned long note_change_time_msec = 0;
 unsigned long note_off_time_msec = 0;
 unsigned int last_pitch = 0;
 unsigned int curr_pitch = 0;
-unsigned int velocity = 0;
-bool adsr_velocity_on_off = false; 
-//bool lfo_velocity_on_off = false; 
+float velocity = 0.0;
+bool velocity_on_off = false;
+bool velocity_on_off_prev = false;  
+bool filt_velocity_on_off = false; 
+bool vca_velocity_on_off = false; 
 unsigned int velocity_max = 126;
 
 unsigned long now_usec = 0;
@@ -445,18 +447,29 @@ void loop() {
   float  lfo_filt_value_scaled = 0;
   lfo_filt_value_scaled = ((((float)dac_max/2)-(float)lfo_filt_value) /2)*lfo_filt_amt; 
   float filter_float=0;
-  filter_float = (float)(((filter_env_value * filter_env_amt) /  dac_max + vcf))+lfo_filt_value_scaled ;
+
+  if (filt_velocity_on_off){
+        filter_float = ((float)(((filter_env_value * filter_env_amt) /  dac_max + vcf))+lfo_filt_value_scaled)*velocity;
+  } else {      
+      filter_float = ((float)(((filter_env_value * filter_env_amt) /  dac_max + vcf))+lfo_filt_value_scaled);
+  }
+  
   if (filter_float < 0){
     curr_filter=0;
   } else {
       curr_filter = filter_float;
   }
 
-  // ADD VELOCITY SENSITIVITY HERE!!!
   float  lfo_vca_value_scaled = 0;
   lfo_vca_value_scaled = ((((float)dac_max/2)-(float)lfo_vca_value) /2)*lfo_vca_amt; 
   float vca_float=0;
-  vca_float = (float)(((vca_env_value * vca_env_amt) /  dac_max))+lfo_vca_value_scaled ;
+
+  if (vca_velocity_on_off){
+      vca_float = ((float)(((vca_env_value * vca_env_amt) /  dac_max))+lfo_vca_value_scaled)*velocity  ;
+  } else {  
+      vca_float = ((float)(((vca_env_value * vca_env_amt) /  dac_max))+lfo_vca_value_scaled) ;
+  }
+  
   if (vca_float < 0){
     curr_vca=0;
   } else {

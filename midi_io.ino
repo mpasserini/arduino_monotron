@@ -33,7 +33,8 @@ void handleNoteOn(byte inChannel, byte inNote, byte inVelocity)
   
   note_on = true;
   //velocity = ((unsigned int)inVelocity*dac_max)/velocity_max;
-   velocity =  (((long)4096*((long)inVelocity))/126);  
+   velocity =  ((float)inVelocity)/126;  
+   
 }
 
 void handleNoteOff(byte inChannel, byte inNote, byte inVelocity)
