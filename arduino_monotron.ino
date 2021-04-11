@@ -448,11 +448,18 @@ void loop() {
   lfo_filt_value_scaled = ((((float)dac_max/2)-(float)lfo_filt_value) /2)*lfo_filt_amt; 
   float filter_float=0;
 
-  if (filt_velocity_on_off){
-        filter_float = ((float)(((filter_env_value * filter_env_amt) /  dac_max + vcf))+lfo_filt_value_scaled)*velocity;
-  } else {      
-      filter_float = ((float)(((filter_env_value * filter_env_amt) /  dac_max + vcf))+lfo_filt_value_scaled);
+
+  filter_float = ((float)(((filter_env_value * filter_env_amt) /  dac_max + vcf))+lfo_filt_value_scaled);
+
+  
+  if (filter_track){
+      filter_float = (float)filter_float + (float)curr_pitch;
   }
+
+  if (filt_velocity_on_off){
+        filter_float = filter_float*velocity;
+  } 
+
   
   if (filter_float < 0){
     curr_filter=0;
@@ -482,11 +489,9 @@ void loop() {
   if (curr_vca > dac_max) { 
     curr_vca = dac_max;
   }
-  // scale based on velocity
-  //curr_filter = curr_filter * velocity;
-  //Serial.println(curr_filter);
-  //curr_filter = 300;
-  //Serial.println(curr_vca);
+
+  //Serial.println(curr_pitch);
+
   
   setOutput(curr_pitch);
   setOutput_filter((unsigned int)curr_filter);

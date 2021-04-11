@@ -4,7 +4,7 @@ void readInputs()
   env_trig_mode = digitalRead(ENV_TRIG_MODE_PIN); 
   legato_or_portamento = digitalRead(LEGATO_PORTAMENTO_PIN);
   filter_track = digitalRead(FILTER_TRACK_PIN);
-
+  
   // turn velcity on based on filt/vca selection
   velocity_on_off = digitalRead(ADSR_VELOCITY_PIN); 
   if (velocity_on_off != velocity_on_off_prev){
