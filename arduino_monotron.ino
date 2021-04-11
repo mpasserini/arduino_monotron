@@ -195,7 +195,7 @@ unsigned long lfo_vca_value_prev = 0;
 float lfo_vca_amt = 0.0;
 bool lfo_vca_retrig = false;
 
-unsigned long lfo_delay;
+unsigned long lfo_delay = 0;
 
 const int max_wave_types=7;
 const int  wave_table_resolution=64; //increase for more precision, 

@@ -3,9 +3,23 @@ void handleNoteOn(byte inChannel, byte inNote, byte inVelocity)
 {
   note_change_time_msec = now_msec;
   last_pitch = curr_pitch;
-  if (note_stack.isEmpty()) {
-      env_trig_time_msec = now_msec ;
+  if (env_trig_mode){ // legato nodes
+      if (note_stack.isEmpty()) {
+          env_trig_time_msec = now_msec ;
 
+          if (lfo_filt_retrig) {
+              lfo_filt_trig_time_msec = now_msec;
+          }
+          if (lfo_vca_retrig) {
+              lfo_vca_trig_time_msec = now_msec;
+          }
+      }
+      else {
+        first_note = false;
+      }
+  } // note retrig
+  else {
+      env_trig_time_msec = now_msec ;
       if (lfo_filt_retrig) {
           lfo_filt_trig_time_msec = now_msec;
       }
@@ -13,9 +27,7 @@ void handleNoteOn(byte inChannel, byte inNote, byte inVelocity)
           lfo_vca_trig_time_msec = now_msec;
       }
   }
-  else {
-    first_note = false;
-  }
+  
   unsigned int in_pitch = dac_max / notes_max * (inNote - notes_lowest) ;
   note_stack.push( in_pitch );
   

@@ -2,7 +2,7 @@
 void readInputs()
 {
   // TODO: IMPLEMENT MISSING FUNCIONALITY FOR VELOCITY ETC
-  env_trig_mode = digitalRead(ENV_TRIG_MODE_PIN); // implement
+  env_trig_mode = digitalRead(ENV_TRIG_MODE_PIN); 
   legato_or_portamento = digitalRead(LEGATO_PORTAMENTO_PIN);
   filter_track = digitalRead(FILTER_TRACK_PIN);
   adsr_velocity_on_off = digitalRead(ADSR_VELOCITY_PIN); // implement
