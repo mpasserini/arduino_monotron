@@ -6,7 +6,7 @@ unsigned int adsr_attack(unsigned long attack_time,
                          unsigned long trig_time, 
                          unsigned int wave_table[][wave_table_resolution], 
                          int wave_table_type ) {
-  if (attack_time < 0 or attack_time > dac_max){
+  if (attack_time < 0){
     Serial.println("adsr_attack input out of range");
   }
   if (current_time < trig_time){
@@ -44,7 +44,7 @@ unsigned int  adsr_decay( unsigned long decay_time,
                           unsigned int wave_table[][wave_table_resolution], 
                           int wave_table_type
                         ) {
-  if (decay_time < 0 or decay_time > dac_max){
+  if (decay_time < 0 ){
     Serial.println("adsr_decay input out of range");
   }
   if (current_time < (trig_time + attack_time)){
@@ -91,7 +91,7 @@ unsigned int adsr_release( unsigned long release_time,
                            unsigned int wave_table[][wave_table_resolution], 
                            int wave_table_type 
                          ){
-  if ((release_time < 0 or release_time > dac_max) and 
+  if ((release_time < 0 ) and 
       (current_time <  untrig_time)){
       Serial.println("adsr_release wrong input");
   }

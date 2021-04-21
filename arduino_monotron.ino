@@ -174,7 +174,6 @@ adsr_states adsr2_state = Release;
 float lfo_amt = 0.0;
 unsigned int lfo_period = 0;
 float lfo_amt_max = 1.0;
-
 unsigned long lfo_filt_trig_time_msec = 0;
 unsigned int lfo_filt_wave = 0; 
 unsigned int lfo_filt_wave_new = 0; 
@@ -186,7 +185,6 @@ float lfo_filt_amt = 0.0;
 bool lfo_filt_retrig = false;
 // true 1, false 2
 bool lfo_sel = true;
-
 unsigned long lfo_vca_trig_time_msec = 0;
 unsigned int lfo_vca_wave = 0; 
 unsigned int lfo_vca_wave_new = 0; 
@@ -196,8 +194,9 @@ unsigned long lfo_vca_value = 0;
 unsigned long lfo_vca_value_prev = 0;
 float lfo_vca_amt = 0.0;
 bool lfo_vca_retrig = false;
-
 unsigned long lfo_delay = 0;
+unsigned long lfo_env_value = 0;
+unsigned int lfo_env_at_note_off = 0;
 
 const int max_wave_types=7;
 const int  wave_table_resolution=64; //increase for more precision, 
@@ -443,13 +442,27 @@ void loop() {
                     vca_env_decay_msec,
                     vca_env_release_msec,
                     vca_env_at_note_off);
+
+  lfo_env_value = adsr(note_stack_is_empty, 
+                    now_msec, 
+                    env_trig_time_msec, 
+                    lfo_delay, 
+                    note_on,
+                    adsr2_state, 
+                    4095, //sustain
+                    0, //decay
+                    4095, //release
+                    lfo_env_at_note_off);
                     
   float  lfo_filt_value_scaled = 0;
-  lfo_filt_value_scaled = ((((float)dac_max/2)-(float)lfo_filt_value) /2)*lfo_filt_amt; 
+  
+  lfo_filt_value_scaled = ((((float)dac_max/2)-(float)lfo_filt_value) /2)* lfo_filt_amt * ((float)lfo_env_value / 4095); 
+
+  //Serial.println(lfo_filt_value_scaled);
   float filter_float=0;
 
 
-  filter_float = ((float)(((filter_env_value * filter_env_amt) /  dac_max + vcf))+lfo_filt_value_scaled);
+  filter_float = ((float)(((filter_env_value * filter_env_amt) /  dac_max + vcf)) + lfo_filt_value_scaled);
 
   
   if (filter_track){
@@ -468,7 +481,7 @@ void loop() {
   }
 
   float  lfo_vca_value_scaled = 0;
-  lfo_vca_value_scaled = ((((float)dac_max/2)-(float)lfo_vca_value) /2)*lfo_vca_amt; 
+  lfo_vca_value_scaled = ((((float)dac_max/2)-(float)lfo_vca_value) /2)*lfo_vca_amt *((float)lfo_env_value / 4095); 
   float vca_float=0;
 
   if (vca_velocity_on_off){

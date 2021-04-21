@@ -16,6 +16,11 @@ unsigned int lfo_wavetable(unsigned long period,
 
   // REMOVE <<<<<<<<<<<<<<<<<<<<<<<<<<<<
   //lfo_retrig = 0;
+
+    if (period == 0 ){
+      Serial.println("Period is 0, but % 0 is undefined, illegal value");
+      return 0;
+    }
    
     wave_table_index_float = get_wave_table_index_float(wave_table_resolution,
                                ((current_time-trig_time) % period),

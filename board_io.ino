@@ -35,8 +35,8 @@ void readInputs()
       }
   }
   
-  // todo: scale the correct values
-  lfo_delay = analogRead(LFO_DELAY_PIN);
+
+  lfo_delay = 1/log10((float)analogRead(LFO_DELAY_PIN)+2) * 10000 - 3321;
   slide_time_msec = pot_max - analogRead(PORTAMENTO_TIME_PIN);
 
   
@@ -47,17 +47,19 @@ void readInputs()
   env_amt_pot = analogRead(ENV_AMT_PIN);
   if (attack_pot != attack_pot_prev){
     if (env_sel){
-      filter_env_attack_msec = (pot_max - attack_pot) * 4;
+      //log10(0) = not a number
+      //1/log10(1) = 1/0 = not a number
+      filter_env_attack_msec = 1/log10((float)(attack_pot+2)) * 10000 - 3321;
     } else {
-      vca_env_attack_msec = (pot_max - attack_pot) * 4;
+      vca_env_attack_msec = 1/log10((float)attack_pot+2) * 10000 - 3321;
     }
     attack_pot_prev = attack_pot;
   }
   if (decay_pot != decay_pot_prev){
     if (env_sel){
-      filter_env_decay_msec = (pot_max - decay_pot) * 4;
+      filter_env_decay_msec = 1/log10((float)decay_pot+2) * 10000 - 3321;
     } else {
-      vca_env_decay_msec = (pot_max - decay_pot) * 4;
+      vca_env_decay_msec = 1/log10((float)decay_pot+2) * 10000 - 3321;
     }
     decay_pot_prev = decay_pot;
   }
@@ -71,9 +73,9 @@ void readInputs()
   }
   if (release_pot != release_pot_prev){
     if (env_sel){
-      filter_env_release_msec = (pot_max - release_pot) * 4;
+      filter_env_release_msec = 1/log10((float)release_pot+2) * 10000 - 3321;
     } else {
-      vca_env_release_msec = (pot_max - release_pot) * 4;
+      vca_env_release_msec = 1/log10((float)release_pot+2) * 10000 - 3321;
     }
     release_pot_prev = release_pot;
   }
@@ -99,9 +101,12 @@ void readInputs()
   } 
   if (lfo_period_pot != lfo_period_pot_prev){
     if (lfo_sel){
-      lfo_filt_period_msec_new = ((pot_max - lfo_period_pot))*4;
+      // don't let the value reach 0 , but a little higher, 1
+      lfo_filt_period_msec_new = 1/log10((float)lfo_period_pot+2) * 10000 - 3318;
+
     } else {
-      lfo_vca_period_msec_new = ((pot_max - lfo_period_pot))*4;
+      // don't let the value reach 0 , but a little higher, 1
+      lfo_vca_period_msec_new =  1/log10((float)lfo_period_pot+2) * 10000 - 3318;
     }
     lfo_period_pot_prev = lfo_period_pot;    
   }
