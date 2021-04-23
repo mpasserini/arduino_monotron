@@ -23,18 +23,17 @@ void readInputs()
 
   if (lfo_retrig_switch){
       if (lfo_sel){
-          lfo_vca_retrig = true;
-      } else {
           lfo_filt_retrig = true;
+      } else {
+          lfo_vca_retrig = true;
       }
   } else {
       if (lfo_sel){
-          lfo_vca_retrig = false;
-      } else {
           lfo_filt_retrig = false;
+      } else {
+          lfo_vca_retrig = false;
       }
   }
-  
 
   lfo_delay = 1/log10((float)analogRead(LFO_DELAY_PIN)+2) * 10000 - 3321;
   slide_time_msec = pot_max - analogRead(PORTAMENTO_TIME_PIN);
