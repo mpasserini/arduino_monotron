@@ -170,6 +170,7 @@ enum adsr_states {
 };
 adsr_states adsr1_state = Release;
 adsr_states adsr2_state = Release;
+adsr_states adsr3_state = Release;
 
 float lfo_amt = 0.0;
 unsigned int lfo_period = 0;
@@ -346,6 +347,7 @@ void loop() {
     note_off_time_msec = now_msec;
     filter_env_at_note_off = filter_env_value;
     vca_env_at_note_off = vca_env_value;
+    lfo_env_at_note_off = lfo_env_value;
   }
 
   // FILTER
@@ -448,11 +450,12 @@ void loop() {
                     env_trig_time_msec, 
                     lfo_delay, 
                     note_on,
-                    adsr2_state, 
-                    4095, //sustain
-                    0, //decay
-                    4095, //release
+                    adsr3_state, 
+                    4095, //max sustain
+                    0, // no decay
+                    10000, //release same as vca
                     lfo_env_at_note_off);
+  //Serial.println(lfo_env_value);
                     
   float  lfo_filt_value_scaled = 0;
   
