@@ -1,34 +1,16 @@
 # arduino_monotron
 
-The code is for Arduino and is supposed to control a Korg Monotron via MIDI
+The project contains code and schematics which explains how to control a Korg Monotron with Arduino Mega.
+I put this into a 1U rackmount unit with some switches and pots. I should soon post some photos and a video.
 
+It consists of a modified Korg Monotron board controller by and Arduino Mega board. The Arduino board received MIDI Input, and outputs control signals via three DACs. The DACs have the following uses:
 
-Done:
-* CV pitch tracking,
-* Filter control,
-* pseudo exponential ADSR,
-* Legato,  Portamento and normal mode,
-* pitch bend,
-* logarithmic scaling for adsr pots,
-* LFO saw, ramp, square,  triangle
-* wavetable based LFO, with also waves for exp env to be implemented
-* VCA,
-* Different envelopes for VCA and VCF
-* Different LFOs for VCA and VCF
-* exp envelopes based on wavetable
-* trigger lfo at gate on or continuous
-* change lfo at zero crossing
-* adsr changes at new stage to avoid glitches
+* control the pitch of the VCO
+* control the cutoff of the VCF
+* control how much the the VCA is open
 
-Todo:
-* add several modes for legato,
-* lfo pitch tracking,
-* Velocity,
-* Add LFO and Env for pitch
-* Upload schematics,
-* code with functions written correctly,
-* When in Legato, let the decay continue or it creates artifacts with short notes
-* add a proper modulation matrix with several lfos and env going to different destinations
-* random lfo
-* make lfo affect + and - the wave and not only +
-* save settings to EPROM and recall
+The schematics folder show how to modify the Monotron board and where to connect the control connectors. It also shows simple diagrams showing how to  conenct the DAC, MIDI,  etc. The VCA is not present on the Montron, so I added a very simple VCA using a vactrol (photoresistor). I had to leave out the gate control and LFO from the original board.
+
+The software contains MIDI handling functions, and is able to generate envelopes and LFOs which can be used to alter the VCO, VCF and VCA in real time. It also handles the inputs from the various knobs.
+
+It's possible to control the synth with CV Gate as well, bypassing MIDI control.
