@@ -9,7 +9,7 @@ It consists of a modified Korg Monotron board controller by and Arduino Mega boa
 * control the cutoff of the VCF
 * control how much the the VCA is open
 
-The schematics folder show how to modify the Monotron board and where to connect the control connectors. It also shows simple diagrams showing how to  conenct the DAC, MIDI,  etc. The VCA is not present on the Montron, so I added a very simple VCA using a vactrol (photoresistor). I had to leave out the gate control and LFO from the original board.
+The schematics folder show how to modify the Monotron board and where to connect the control connectors. It also shows simple diagrams showing how to  conenct the DAC, MIDI,  etc. The VCA is not present on the Montron, so I added a very simple VCA using a vactrol (photoresistor). I had to leave out the gate control, the LFO from the original board, the touch keyboard and the internal speaker.
 
 The software contains MIDI handling functions, and is able to generate envelopes and LFOs which can be used to alter the VCO, VCF and VCA in real time. It also handles the inputs from the various knobs.
 
